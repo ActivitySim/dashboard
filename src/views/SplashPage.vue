@@ -1,7 +1,7 @@
 <i18n>
 en:
-  more-info: 'Documentation'
-  tagLine: 'an experimental simulation dashboard and data visualizer for ActivitySim'
+  more-info: 'Documentation:'
+  tagLine: 'the simulation dashboard and data visualizer for ActivitySim'
 de:
   more-info: 'Für weitere Informationen:'
   tagLine: 'Der Modellergebnis-Browser der TU Berlin.'
