@@ -1,6 +1,6 @@
-# SimWrapper project website
+# ActivitySim Dashboard project website
 
-This repo contains the interactive visualization website for **SimWrapper**, available at https://vsp.berlin/simwrapper
+This experimental dashboard is based on **SimWrapper**, available at https://vsp.berlin/simwrapper
 
 - DOCS available at: https://simwrapper.github.io/docs
 
