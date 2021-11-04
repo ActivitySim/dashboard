@@ -60,7 +60,7 @@ export default class VueComponent extends Vue {
   flex-direction: column;
   background-color: var(--bgBold);
   border-radius: 16px;
-  border: 1px solid var(--bgPanel3);
+  // border: 1px solid var(--bgPanel3);
 }
 
 .desc h3 {
