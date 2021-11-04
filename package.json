@@ -8,7 +8,8 @@
     "release": "standard-version",
     "test:unit": "vue-cli-service test:unit",
     "lint": "vue-cli-service lint",
-    "deploy": "bash scripts/deploy-ghpages.sh ActivitySim/dashboard"
+    "deploy": "bash scripts/deploy-ghpages.sh ActivitySim/dashboard",
+    "bumpversion": "standard-version"
   },
   "dependencies": {
     "@aftersim/pako": "^1.0.11-3",
