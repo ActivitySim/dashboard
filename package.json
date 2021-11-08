@@ -1,6 +1,6 @@
 {
   "name": "simwrapper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
@@ -8,8 +8,8 @@
     "release": "standard-version",
     "test:unit": "vue-cli-service test:unit",
     "lint": "vue-cli-service lint",
-    "deploy": "bash scripts/deploy-ghpages.sh ActivitySim/dashboard",
-    "bumpversion": "standard-version"
+    "bumpversion": "standard-version",
+    "deploy": "bash scripts/deploy-ghpages.sh ActivitySim/dashboard"
   },
   "dependencies": {
     "@aftersim/pako": "^1.0.11-3",
@@ -142,7 +142,7 @@
     "raw-loader": "^4.0.0",
     "sass": "^1.32.11",
     "sass-loader": "^8.0.2",
-    "standard-version": "^9.0.0",
+    "standard-version": "^9.3.2",
     "threads-plugin": "^1.4.0",
     "typescript": "^4.2.0",
     "vue-template-compiler": "^2.6.11",
