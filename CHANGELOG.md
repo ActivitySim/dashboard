@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.0](https://github.com/ActivitySim/dashboard/compare/v1.0.1...v1.2.0) (2021-12-01)
+
+
+### Features
+
+* New "heatmap" chart type ([b16a03f](https://github.com/ActivitySim/dashboard/commit/b16a03fbaf750107bd26f55301595cd5f400a016))
+* Support multiple local servers on ports 8000-8500 ([1212464](https://github.com/ActivitySim/dashboard/commit/12124648a54d61b5af56cd1a0a32018a35a1b7b5))
+
+
+### Bug Fixes
+
+* Back Button Bug ([#59](https://github.com/ActivitySim/dashboard/issues/59)) ([8f49ad3](https://github.com/ActivitySim/dashboard/commit/8f49ad30eea771e3988b152f16753793f91b1c07))
+
 ## [1.1.0](https://github.com/simwrapper/simwrapper/compare/v1.0.1...v1.1.0) (2021-11-24)
 
 
