@@ -22,9 +22,9 @@ export default class VueComponent extends Vue {
   @Prop({ required: true }) config!: any
 
   private mounted() {
-    console.log(this.fileSystemConfig)
-    console.log('subfolder', this.subfolder)
-    console.log('config', this.config)
+    // console.log(this.fileSystemConfig)
+    // console.log('subfolder', this.subfolder)
+    // console.log('config', this.config)
     this.$emit('isLoaded')
   }
 }

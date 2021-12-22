@@ -1,16 +1,29 @@
 <template lang="pug">
 .mycomponent(:id="containerId")
-  .status-blob(v-show="!thumbnail && loadingText")
-    p {{ loadingText }}
 
-  .map-complications(v-if="!thumbnail && !isMobile()")
-    legend-box.complication(:rows="legendRows")
-    scale-box.complication(:rows="scaleRows")
+  zoom-buttons.zoom-buttons(v-if="!thumbnail")
 
   .map-container
     .mymap(:id="mapId")
 
-  collapsible-panel.left-panel(v-if="!thumbnail && !loadingText"
+    .status-blob(v-show="!thumbnail && loadingText")
+      p {{ loadingText }}
+
+    .lower-left(v-if="!thumbnail")
+      .subheading {{ $t('lineWidths')}}
+      scale-slider.scale-slider(:stops='scaleValues' :initialTime='1' @change='bounceScaleSlider')
+
+      .subheading {{ $t('hide')}}
+      line-filter-slider.scale-slider(
+        :initialValue="lineFilter"
+        @change='bounceLineFilter')
+
+    .lower-right(v-if="!thumbnail && !isMobile()")
+      legend-box.complication(:rows="legendRows")
+      scale-box.complication(:rows="scaleRows")
+
+
+  collapsible-panel.left-panel(v-if="!this.config && !thumbnail && !loadingText"
     :darkMode="isDarkMode" direction="left" :locked="true")
 
     .info-header(style="padding: 0 0.5rem;")
@@ -19,46 +32,53 @@
     .info-description(style="padding: 0 0.5rem;" v-if="this.vizDetails.description")
       p.description {{ this.vizDetails.description }}
 
-    .widgets
-      h4.heading Uhrzeit
+  .widgets(v-if="!thumbnail" style="{'padding': config ? '0 0'}")
+    .widget-column()
+      h4.heading {{ $t('time')}}
+      label.checkbox(style="margin: 0 0.5rem 0 auto;")
+          input(type="checkbox" v-model="showTimeRange")
+          | &nbsp;{{ $t('duration') }}
       time-slider.time-slider(v-if="headers.length > 0"
         :useRange='showTimeRange'
         :stops='headers'
         @change='bounceTimeSlider')
+
+    .widget-column
+      h4.heading {{ $t('Centroids')}}
       label.checkbox
-         input(type="checkbox" v-model="showTimeRange")
-         | &nbsp;Zeitraum
+        input(type="checkbox" v-model="showCentroids")
+        | &nbsp;{{ $t('showCentroids')}}
+      label.checkbox
+        input(type="checkbox" v-model="showCentroidLabels")
+        | &nbsp;{{$t('showNumbers')}}
 
-      h4.heading Kreise
-      .white-box
-        label.checkbox
-          input(type="checkbox" v-model="showCentroids")
-          | &nbsp;Kreise anzeigen
-        label.checkbox
-          input(type="checkbox" v-model="showCentroidLabels")
-          | &nbsp;Nummern anzeigen
-
-      h4.heading Strecken
-      .white-box
-        .subheading Linienbreiten
-        scale-slider.scale-slider(:stops='scaleValues' :initialTime='1' @change='bounceScaleSlider')
-
-        .subheading Ausblenden bis
-        line-filter-slider.scale-slider(
-          :initialValue="lineFilter"
-          @change='bounceLineFilter')
-
-      h4.heading Insgesamt für
-      .buttons-bar
-        // {{rowName}}
-        button.button(@click='clickedOrigins' :class='{"is-link": isOrigin ,"is-active": isOrigin}') Quellen
-        // {{colName}}
-        button.button(hint="hide" @click='clickedDestinations' :class='{"is-link": !isOrigin,"is-active": !isOrigin}') Zielorte
+    .widget-column(style="margin: 0 0 0 auto")
+      h4.heading {{$t('total')}}
+      button.button(@click='clickedOrigins' :class='{"is-link": isOrigin ,"is-active": isOrigin}') {{$t('origins')}}
+      button.button(hint="hide" @click='clickedDestinations' :class='{"is-link": !isOrigin,"is-active": !isOrigin}') {{$t('dest')}}
 
 </template>
 
 <script lang="ts">
-'use strict'
+const i18n = {
+  messages: {
+    en: {
+      legend: 'Legend:',
+      lineWidth: 'Line width:',
+      lineWidths: 'Line widths',
+      hide: 'Hide smaller than',
+      time: 'Time of Day',
+      duration: 'Duration',
+      circle: 'Centroids',
+      showCentroids: 'Show centroids',
+      showNumbers: 'Show totals',
+      total: 'Totals for',
+      origins: 'Origins',
+      dest: 'Destinations',
+    },
+    de: {},
+  },
+}
 
 import * as shapefile from 'shapefile'
 import * as turf from '@turf/turf'
@@ -82,6 +102,7 @@ import LineFilterSlider from './LineFilterSlider.vue'
 import ScaleBox from './ScaleBoxOD.vue'
 import TimeSlider from './TimeSlider.vue'
 import ScaleSlider from '@/components/ScaleSlider.vue'
+import ZoomButtons from '@/components/ZoomButtons.vue'
 
 import {
   MAP_STYLES,
@@ -117,6 +138,7 @@ const INPUTS = {
 }
 
 @Component({
+  i18n,
   components: {
     CollapsiblePanel,
     LegendBox,
@@ -124,6 +146,7 @@ const INPUTS = {
     ScaleBox,
     ScaleSlider,
     TimeSlider,
+    ZoomButtons,
   },
 })
 class MyComponent extends Vue {
@@ -137,6 +160,9 @@ class MyComponent extends Vue {
   private yamlConfig!: string
 
   @Prop({ required: false })
+  private config!: any
+
+  @Prop({ required: false })
   private thumbnail!: boolean
 
   private globalState = globalStore.state
@@ -144,9 +170,9 @@ class MyComponent extends Vue {
   private myState = {
     fileApi: undefined as HTTPFileSystem | undefined,
     fileSystem: undefined as FileSystemConfig | undefined,
-    subfolder: this.subfolder,
-    yamlConfig: this.yamlConfig,
-    thumbnail: this.thumbnail,
+    subfolder: '',
+    yamlConfig: '',
+    thumbnail: false,
   }
 
   private vizDetails: AggOdYaml = {
@@ -229,6 +255,10 @@ class MyComponent extends Vue {
 
   public async mounted() {
     globalStore.commit('setFullScreen', !this.thumbnail)
+
+    this.myState.thumbnail = this.thumbnail
+    this.myState.yamlConfig = this.yamlConfig
+    this.myState.subfolder = this.subfolder
 
     this.buildFileApi()
     await this.getVizDetails()
@@ -328,16 +358,25 @@ class MyComponent extends Vue {
 
   private async getVizDetails() {
     if (!this.myState.fileApi) return
-    // first get config
-    try {
-      const text = await this.myState.fileApi.getFileText(
-        this.myState.subfolder + '/' + this.myState.yamlConfig
-      )
-      this.vizDetails = yaml.parse(text)
-    } catch (e) {
-      // maybe it failed because password?
-      if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
-        globalStore.commit('requestLogin', this.myState.fileSystem.slug)
+
+    if (this.config) {
+      this.vizDetails = Object.assign({}, this.config)
+    } else {
+      try {
+        // might be a project config:
+        const filename =
+          this.myState.yamlConfig.indexOf('/') > -1
+            ? this.myState.yamlConfig
+            : this.myState.subfolder + '/' + this.myState.yamlConfig
+
+        const text = await this.myState.fileApi.getFileText(filename)
+        this.vizDetails = yaml.parse(text)
+      } catch (err) {
+        const e = err as any
+        // maybe it failed because password?
+        if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
+          globalStore.commit('requestLogin', this.myState.fileSystem.slug)
+        }
       }
     }
 
@@ -386,8 +425,8 @@ class MyComponent extends Vue {
   private setupMap() {
     this.mymap = new maplibregl.Map({
       container: this.mapId,
-      logoPosition: 'bottom-right',
       style: this.isDarkMode ? MAP_STYLES.dark : MAP_STYLES.light,
+      logoPosition: 'top-left',
     })
 
     try {
@@ -396,7 +435,7 @@ class MyComponent extends Vue {
         const lnglat = JSON.parse(extent)
 
         const mFac = this.isMobile() ? 0 : 1
-        const padding = { top: 50 * mFac, bottom: 100 * mFac, right: 100 * mFac, left: 300 * mFac }
+        const padding = { top: 50 * mFac, bottom: 50 * mFac, right: 100 * mFac, left: 50 * mFac }
 
         this.$store.commit('setMapCamera', {
           longitude: 0.5 * (lnglat[0] + lnglat[2]),
@@ -406,16 +445,6 @@ class MyComponent extends Vue {
           bearing: 0,
           jump: true, // initial map
         })
-        // if (this.thumbnail) {
-        //   this.mymap.fitBounds(lnglat, {
-        //     animate: false,
-        //   })
-        // } else {
-        //   this.mymap.fitBounds(lnglat, {
-        //     padding,
-        //     animate: false,
-        //   })
-        // }
       }
     } catch (e) {
       // no consequence if json was weird, just drop it
@@ -424,8 +453,6 @@ class MyComponent extends Vue {
     this.mymap.on('click', this.handleEmptyClick)
     // Start doing stuff AFTER the MapBox library has fully initialized
     this.mymap.on('load', this.mapIsReady)
-    this.mymap.addControl(new maplibregl.NavigationControl(), 'top-right')
-
     this.mymap.on('move', this.handleMapMotion)
 
     // clean up display just when we're in thumbnail mode
@@ -573,17 +600,17 @@ class MyComponent extends Vue {
     this.changedScale(this.currentScale)
 
     const parent = this
-    this.mymap.on('click', 'spider-layer', function(e: maplibregl.MapMouseEvent) {
+    this.mymap.on('click', 'spider-layer', function (e: maplibregl.MapMouseEvent) {
       parent.clickedOnSpiderLink(e)
     })
 
     // turn "hover cursor" into a pointer, so user knows they can click.
-    this.mymap.on('mousemove', 'spider-layer', function(e: maplibregl.MapMouseEvent) {
+    this.mymap.on('mousemove', 'spider-layer', function (e: maplibregl.MapMouseEvent) {
       parent.mymap.getCanvas().style.cursor = e ? 'pointer' : 'grab'
     })
 
     // and back to normal when they mouse away
-    this.mymap.on('mouseleave', 'spider-layer', function() {
+    this.mymap.on('mouseleave', 'spider-layer', function () {
       parent.mymap.getCanvas().style.cursor = 'grab'
     })
   }
@@ -617,7 +644,7 @@ class MyComponent extends Vue {
     if (this.mymap.getLayer('centroid-layer')) this.mymap.removeLayer('centroid-layer')
     if (this.mymap.getLayer('centroid-label-layer')) this.mymap.removeLayer('centroid-label-layer')
 
-    if (this.showCentroids) {
+    if (this.showCentroids && !this.thumbnail) {
       this.mymap.addLayer({
         id: 'centroid-layer',
         source: 'centroids',
@@ -707,10 +734,7 @@ class MyComponent extends Vue {
     html += `<p> -----------------------------</p>`
     html += `<p>${trips} trips : ${revTrips} reverse trips</p>`
 
-    new maplibregl.Popup({ closeOnClick: true })
-      .setLngLat(e.lngLat)
-      .setHTML(html)
-      .addTo(this.mymap)
+    new maplibregl.Popup({ closeOnClick: true }).setLngLat(e.lngLat).setHTML(html).addTo(this.mymap)
   }
 
   private convertRegionColors(geojson: FeatureCollection) {
@@ -885,17 +909,17 @@ class MyComponent extends Vue {
 
     const parent = this
 
-    this.mymap.on('click', 'centroid-layer', function(e: maplibregl.MapMouseEvent) {
+    this.mymap.on('click', 'centroid-layer', function (e: maplibregl.MapMouseEvent) {
       parent.clickedOnCentroid(e)
     })
 
     // turn "hover cursor" into a pointer, so user knows they can click.
-    this.mymap.on('mousemove', 'centroid-layer', function(e: maplibregl.MapMouseEvent) {
+    this.mymap.on('mousemove', 'centroid-layer', function (e: maplibregl.MapMouseEvent) {
       parent.mymap.getCanvas().style.cursor = e ? 'pointer' : 'grab'
     })
 
     // and back to normal when they mouse away
-    this.mymap.on('mouseleave', 'centroid-layer', function() {
+    this.mymap.on('mouseleave', 'centroid-layer', function () {
       parent.mymap.getCanvas().style.cursor = 'grab'
     })
   }
@@ -906,7 +930,7 @@ class MyComponent extends Vue {
     const options = this.thumbnail
       ? { animate: false }
       : {
-          padding: { top: 50, bottom: 100, right: 100, left: 300 },
+          padding: { top: 100, bottom: 100, right: 100, left: 100 },
           animate: false,
         }
     this.mymap.fitBounds(this._mapExtentXYXY, options)
@@ -914,13 +938,13 @@ class MyComponent extends Vue {
 
   private setupKeyListeners() {
     const parent = this
-    window.addEventListener('keyup', function(event) {
+    window.addEventListener('keyup', function (event) {
       if (event.keyCode === 27) {
         // ESC
         parent.pressedEscape()
       }
     })
-    window.addEventListener('keydown', function(event) {
+    window.addEventListener('keydown', function (event) {
       if (event.keyCode === 38) {
         // UP
         parent.pressedArrowKey(-1)
@@ -1052,7 +1076,7 @@ class MyComponent extends Vue {
     const separator = lines[0].indexOf(';') > 0 ? ';' : ','
 
     // data is in format: o,d, value[1], value[2], value[3]...
-    const headers = lines[0].split(separator).map(a => a.trim())
+    const headers = lines[0].split(separator).map((a) => a.trim())
     this.rowName = headers[0]
     this.colName = headers[1]
     this.headers = [TOTAL_MSG].concat(headers.slice(2))
@@ -1139,7 +1163,7 @@ class MyComponent extends Vue {
 
   private addNeighborhoodHoverEffects() {
     const parent = this
-    this.mymap.on('mousemove', 'shplayer-fill', function(e: any) {
+    this.mymap.on('mousemove', 'shplayer-fill', function (e: any) {
       // typescript definitions and mapbox-gl are out of sync at the moment :-(
       // so setFeatureState is missing
       const tsMap = parent.mymap as any
@@ -1157,7 +1181,7 @@ class MyComponent extends Vue {
 
     // When the mouse leaves the state-fill layer, update the feature state of the
     // previously hovered feature.
-    this.mymap.on('mouseleave', 'shplayer-fill', function() {
+    this.mymap.on('mouseleave', 'shplayer-fill', function () {
       const tsMap = parent.mymap as any
       if (parent.hoveredStateId) {
         tsMap.setFeatureState({ source: 'shpsource', id: parent.hoveredStateId }, { hover: false })
@@ -1240,7 +1264,7 @@ globalStore.commit('registerPlugin', {
   kebabName: 'aggregate-od',
   prettyName: 'Origin/Destination Patterns',
   description: 'Depicts aggregate O/D flows between areas.',
-  filePatterns: ['viz-od*.y?(a)ml'],
+  filePatterns: ['**/viz-od*.y?(a)ml'],
   component: MyComponent,
 } as VisualizationPlugin)
 
@@ -1259,7 +1283,6 @@ h4 {
 }
 
 .mycomponent {
-  width: 100%;
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-rows: 1fr auto;
@@ -1267,30 +1290,28 @@ h4 {
 }
 
 .status-blob {
-  grid-column: 1 / 3;
-  grid-row: 1 / 3;
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
   background-color: white;
-  box-shadow: 0 0 8px #00000040;
-  margin: auto 0px;
-  padding: 3rem 0px;
-  text-align: center;
-  z-index: 99;
-  border-top: solid 1px #479ccc;
-  border-bottom: solid 1px #479ccc;
+  padding: 0.75rem 1.5rem;
+  z-index: 5;
+  filter: $filterShadow;
+  font-size: 1.2rem;
 }
 
 .map-container {
+  height: 100%;
   min-height: $thumbnailHeight;
   background-color: #eee;
   grid-column: 1 / 3;
   grid-row: 1 / 3;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .mymap {
-  height: 100%;
-  width: 100%;
   flex: 1;
 }
 
@@ -1312,52 +1333,66 @@ h4 {
 .widgets {
   color: var(--text);
   display: flex;
+  flex-direction: row;
+  user-select: none;
+  padding: 0.5rem 0.5rem;
+}
+
+.widget-column {
+  margin-right: 1rem;
+  display: flex;
   flex-direction: column;
-  padding: 0px 0.5rem;
-  margin-top: auto;
-  margin-bottom: 0.5rem;
 }
 
 .status-blob p {
   color: #555;
 }
 
-.map-complications {
+.lower-right {
+  position: absolute;
+  bottom: 2rem;
+  right: 0.5rem;
   display: flex;
-  grid-column: 1 / 3;
-  grid-row: 2/3;
-  margin: auto 0.5rem 1.5rem auto;
-  z-index: 4;
+  z-index: 1;
+}
+
+.lower-left {
+  width: 10rem;
+  position: absolute;
+  bottom: 5.5rem;
+  right: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+  background-color: var(--bgPanel);
+  opacity: 0.9;
+  filter: $filterShadow;
+  border: solid 1px rgba(161, 160, 160, 0.781);
+  border-radius: 2px;
+  padding-bottom: 0.25rem;
 }
 
 .complication {
-  margin: 0rem 0rem 0rem 0.5rem;
+  margin: 0rem 0rem 0rem 0.25rem;
 }
 
-.buttons-bar {
-  display: flex;
-  flex-direction: row;
-  text-align: center;
-}
-
-.buttons-bar button {
-  flex-grow: 1;
-  width: 50%;
-  margin: 0px 1px;
+.widget-column button {
+  // flex-grow: 1;
+  margin: 1px 0px;
 }
 
 .time-slider {
-  margin: 0rem 0px auto 0px;
+  width: 12rem;
 }
 
 .scale-slider {
-  margin: 0rem 0px auto 0px;
+  // margin: 0rem 0px auto 0px;
 }
 
 .heading {
   font-weight: bold;
   text-align: left;
-  margin-top: 1rem;
+  margin-top: 0.5rem;
 }
 
 .subheading {
@@ -1366,10 +1401,10 @@ h4 {
 }
 
 .checkbox {
-  font-size: 0.8rem;
-  margin-top: 0.25rem;
-  margin-right: 0.5rem;
-  margin-left: 1rem;
+  // font-size: 0.8rem;
+  // margin-top: 0.25rem;
+  // margin-right: 0.5rem;
+  // margin-left: 1rem;
 }
 
 .description {
@@ -1389,7 +1424,7 @@ h4 {
 }
 
 .left-panel {
-  z-index: 1;
+  z-index: 2;
   position: absolute;
   top: 0rem;
   left: 0;
@@ -1409,6 +1444,13 @@ h4 {
 
 .white-box {
   padding: 0.5rem 0.25rem 0.5rem 0.25rem;
+}
+
+.zoom-buttons {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  z-index: 1;
 }
 
 @media only screen and (max-width: 640px) {

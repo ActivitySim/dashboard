@@ -1,14 +1,3 @@
-<i18n>
-en:
-  title: 'Draw Shapes'
-  hint: 'Click on map to draw shapes.'
-  clear: 'Clear'
-  shapefile: 'Export'
-  close-shape: 'Add more points to close shape.'
-  more-shapes: 'Export now or start new shape.'
-de:
-</i18n>
-
 <template lang="pug">
 .draw-thing
   .map(:id="mapID" v-show="showShapeDrawer")
@@ -16,7 +5,6 @@ de:
   .map-actions
     button.button.draw-button.is-tiny(title="Draw" @click="toggleShapeDrawer"
       :class="{'is-drawing': showShapeDrawer}"
-      :style="{'border-color': isDark ? '#111111': '#e0e0e0'}"
     )
       img(src="./images/draw-icon.png" width=16)
 
@@ -34,6 +22,19 @@ de:
 </template>
 
 <script lang="ts">
+const i18n = {
+  messages: {
+    en: {
+      title: 'Draw Shapes',
+      hint: 'Click on map to draw shapes.',
+      clear: 'Clear',
+      shapefile: 'Export',
+      'close-shape': 'Add more points to close shape.',
+      'more-shapes': 'Export now or start new shape.',
+    },
+    de: {},
+  },
+}
 import { Vue, Component, Watch, Prop } from 'vue-property-decorator'
 import { GeoJsonLayer, ScatterplotLayer } from '@deck.gl/layers'
 import proj4 from 'proj4'
@@ -43,7 +44,7 @@ import LayerManager from '@/js/LayerManager'
 import { MAP_STYLES } from '@/Globals'
 import globalStore from '@/store'
 
-@Component({ components: {} })
+@Component({ i18n, components: {} })
 export default class VueComponent extends Vue {
   private canExport = false
   private points: any[] = []
@@ -136,10 +137,8 @@ export default class VueComponent extends Vue {
   }
 
   private exportIt() {
-    console.log('exporting')
-
     // only export closed polygons
-    this.polygons = this.polygons.filter(p => p.finished)
+    this.polygons = this.polygons.filter((p) => p.finished)
     this.points = []
     this.updateLayers()
 
@@ -214,11 +213,15 @@ export default class VueComponent extends Vue {
   }
 
   private updateLayers() {
+    // view isn't picking the changes up, let's force it
+    const shapes = this.polygons.slice(0)
+    const dots = this.points.slice(0)
+
     this.layerManager.removeLayer('draw-polygon-layer')
     this.layerManager.addLayer(
       new GeoJsonLayer({
         id: 'draw-polygon-layer',
-        data: this.polygons,
+        data: shapes,
         pickable: false,
         stroked: true,
         filled: true,
@@ -237,7 +240,7 @@ export default class VueComponent extends Vue {
     this.layerManager.addLayer(
       new ScatterplotLayer({
         id: 'scatterplot-layer',
-        data: this.points,
+        data: dots,
         getPosition: (d: any) => d,
         pickable: true,
         stroked: true,
@@ -257,7 +260,6 @@ export default class VueComponent extends Vue {
 </script>
 
 <style scoped lang="scss">
-@import '~vue-slider-component/theme/default.css';
 @import '@/styles.scss';
 
 .draw-thing {
@@ -284,20 +286,23 @@ export default class VueComponent extends Vue {
   padding: 0.5rem 1rem;
   z-index: 10;
   position: absolute;
-  top: 10px;
-  right: 4rem;
+  top: 6px;
+  right: 31px;
+  box-shadow: 0px 2px 5px #22222233;
 }
 
 .drawing-tool {
-  z-index: 10;
   grid-column: 1 / 3;
   grid-row: 1 / 4;
 }
 
 .draw-button {
-  padding: 0 6.5px;
-  border: 2px solid #e0e0e0;
-  border-radius: 6px;
+  // background-color: var(--bgPanel3);
+  padding: 0px 4px;
+  border: var(--borderZoomButtons);
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
 }
 
 .draw-button:hover {
@@ -315,8 +320,8 @@ export default class VueComponent extends Vue {
   position: absolute;
   display: flex;
   flex-direction: column;
-  top: 8rem;
-  right: 8px;
+  top: 5.5rem;
+  right: 4px;
   z-index: 15;
 }
 

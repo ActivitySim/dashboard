@@ -1,22 +1,3 @@
-<i18n>
-en:
-  all: "All"
-  colors: "Colors"
-  loading: "Loading"
-  selectColumn: "Select data column"
-  timeOfDay: "Time of day"
-  bandwidths: "Widths: 1 pixel ="
-  showDiffs: "Show Differences"
-de:
-  all: "Alle"
-  colors: "Farben"
-  loading: "Wird geladen"
-  selectColumn: "Datenspalte wählen"
-  timeOfDay: "Uhrzeit"
-  bandwidths: "Linienbreiten: 1 pixel ="
-  showDiffs: "Differenzen"
-</i18n>
-
 <template lang="pug">
 .link-volume-plot(:class="{'hide-thumbnail': !thumbnail}"
         :style='{"background": urlThumbnail}'
@@ -35,48 +16,68 @@ de:
         :showDiffs="showDiffs"
         :viewId="linkLayerId"
     )
-    //- :vState="$store.state.viewState"
 
-    drawing-tool
+    zoom-buttons(v-if="!thumbnail")
+    drawing-tool(v-if="!thumbnail")
 
     .top-panel(v-if="vizDetails.title")
-      //- heading
       .panel-item
         h3 {{ vizDetails.title }}
         p {{ vizDetails.description }}
 
-    .message-pane(v-if="!thumbnail && myState.statusMessage")
-      p.status-message {{ myState.statusMessage }}
+    .bottom-panel(v-if="!thumbnail")
+      .status-message(v-if="myState.statusMessage")
+        p {{ myState.statusMessage }}
 
-  .bottom-panel(v-if="!thumbnail")
-    .panel-items
+      .panel-items
+          //- button/dropdown for selecting column
+          .panel-item.config-section
+            config-panel(
+              :header="csvData.header"
+              :activeColumn="csvData.activeColumn"
+              :scaleWidth="scaleWidth"
+              :selectedColorRamp="selectedColorRamp"
+              :csvData="csvData"
+              :useSlider="vizDetails.useSlider"
+              :showDiffs="showDiffs"
+              @colors="clickedColorRamp"
+              @column="handleNewDataColumn"
+              @slider="handleNewDataColumn"
+              @scale="handleScaleWidthChanged"
+            )
 
-        //- button/dropdown for selecting column
-        .panel-item.config-section
-          config-panel(
-            :header="csvData.header"
-            :activeColumn="csvData.activeColumn"
-            :scaleWidth="scaleWidth"
-            :selectedColorRamp="selectedColorRamp"
-            :csvData="csvData"
-            :useSlider="vizDetails.useSlider"
-            :showDiffs="showDiffs"
-            @colors="clickedColorRamp"
-            @column="handleNewDataColumn"
-            @slider="handleNewDataColumn"
-            @scale="handleScaleWidthChanged"
-          )
-
-        //- DIFF checkbox
-        .panel-item.diff-section(v-if="csvBase.header.length")
-          p: b {{ $t('showDiffs') }}
-          toggle-button.toggle(:width="40" :value="showDiffs" :labels="false"
-            :color="{checked: '#4b7cc4', unchecked: '#222'}"
-            @change="showDiffs = !showDiffs")
+          //- DIFF checkbox
+          .panel-item.diff-section(v-if="csvBase.header.length")
+            p: b {{ $t('showDiffs') }}
+            toggle-button.toggle(:width="40" :value="showDiffs" :labels="false"
+              :color="{checked: '#4b7cc4', unchecked: '#222'}"
+              @change="showDiffs = !showDiffs")
 
 </template>
 
 <script lang="ts">
+const i18n = {
+  messages: {
+    en: {
+      all: 'All',
+      colors: 'Colors',
+      loading: 'Loading',
+      selectColumn: 'Select data column',
+      timeOfDay: 'Time of day',
+      bandwidths: 'Widths: 1 pixel =',
+      showDiffs: 'Show Differences',
+    },
+    de: {
+      all: 'Alle',
+      colors: 'Farben',
+      loading: 'Wird geladen',
+      selectColumn: 'Datenspalte wählen',
+      timeOfDay: 'Uhrzeit',
+      bandwidths: 'Linienbreiten: 1 pixel =',
+      showDiffs: 'Differenzen',
+    },
+  },
+}
 import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
 import { ToggleButton } from 'vue-js-toggle-button'
 import Papaparse from 'papaparse'
@@ -90,7 +91,8 @@ import ConfigPanel from './ConfigPanel.vue'
 import LinkGlLayer from './LinkLayer'
 import HTTPFileSystem from '@/js/HTTPFileSystem'
 import DrawingTool from '@/components/DrawingTool/DrawingTool.vue'
-import GzipFetcher from '@/workers/GzipFetcher.worker'
+import ZoomButtons from '@/components/ZoomButtons.vue'
+import GzipFetcher from '@/workers/GzipFetcher.worker.ts?worker'
 
 import {
   ColorScheme,
@@ -113,6 +115,7 @@ interface CSV {
 }
 
 @Component({
+  i18n,
   components: {
     CollapsiblePanel,
     ConfigPanel,
@@ -120,6 +123,7 @@ interface CSV {
     LinkGlLayer,
     TimeSlider,
     ToggleButton,
+    ZoomButtons,
   } as any,
 })
 class MyPlugin extends Vue {
@@ -174,9 +178,9 @@ class MyPlugin extends Vue {
     statusMessage: '',
     fileApi: undefined as HTTPFileSystem | undefined,
     fileSystem: undefined as FileSystemConfig | undefined,
-    subfolder: this.subfolder,
-    yamlConfig: this.yamlConfig,
-    thumbnail: this.thumbnail,
+    subfolder: '',
+    yamlConfig: '',
+    thumbnail: false,
   }
 
   private csvData: CSV = { header: [], headerMax: [], rows: new Float32Array(), activeColumn: -1 }
@@ -236,12 +240,17 @@ class MyPlugin extends Vue {
 
     // first get config
     try {
-      const text = await this.myState.fileApi.getFileText(
-        this.myState.subfolder + '/' + this.myState.yamlConfig
-      )
+      // might be a project config:
+      const filename =
+        this.myState.yamlConfig.indexOf('/') > -1
+          ? this.myState.yamlConfig
+          : this.myState.subfolder + '/' + this.myState.yamlConfig
+
+      const text = await this.myState.fileApi.getFileText(filename)
       this.vizDetails = YAML.parse(text)
-    } catch (e) {
-      console.log('failed')
+    } catch (err) {
+      console.error('failed')
+      const e = err as any
       // maybe it failed because password?
       if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
         this.$store.commit('requestLogin', this.myState.fileSystem.slug)
@@ -309,7 +318,7 @@ class MyPlugin extends Vue {
     // // find max value for scaling
     if (!this.csvData.headerMax[column]) {
       let max = 0
-      this.buildColumnValues[column].forEach(value => (max = Math.max(max, value)))
+      this.buildColumnValues[column].forEach((value) => (max = Math.max(max, value)))
       if (max) this.csvData.headerMax[column] = max
     }
 
@@ -348,6 +357,10 @@ class MyPlugin extends Vue {
   private async mounted() {
     this.$store.commit('setFullScreen', !this.thumbnail)
 
+    this.myState.thumbnail = this.thumbnail
+    this.myState.yamlConfig = this.yamlConfig
+    this.myState.subfolder = this.subfolder
+
     this.buildFileApi()
 
     await this.getVizDetails()
@@ -383,16 +396,23 @@ class MyPlugin extends Vue {
     if (!this.myState.fileApi) return
 
     try {
+      this.myState.statusMessage = 'Loading network...'
       this.linkOffsetLookup = {}
       this.numLinks = 0
-
-      this.myState.statusMessage = 'Loading network...'
 
       const network = `/${this.myState.subfolder}/${this.vizDetails.geojsonFile}`
 
       const worker = new GzipFetcher() as Worker
 
       worker.onmessage = (buffer: MessageEvent) => {
+        if (buffer.data.error) {
+          this.myState.statusMessage = buffer.data.error
+          this.$store.commit('setStatus', {
+            type: Status.ERROR,
+            msg: `Error loading: ${network}`,
+          })
+        }
+
         const buf = buffer.data
         const decoder = new TextDecoder('utf-8')
         const jsonData = decoder.decode(buf)
@@ -543,6 +563,13 @@ class MyPlugin extends Vue {
     const worker = new GzipFetcher() as Worker
     try {
       worker.onmessage = (buffer: MessageEvent) => {
+        if (buffer.data.error) {
+          this.myState.statusMessage = buffer.data.error
+          this.$store.commit('setStatus', {
+            type: Status.ERROR,
+            msg: `Error loading: ${csvFilename}`,
+          })
+        }
         const buf = buffer.data
         const decoder = new TextDecoder('utf-8')
         const text = decoder.decode(buf)
@@ -585,7 +612,7 @@ globalStore.commit('registerPlugin', {
   kebabName: 'links-gl',
   prettyName: 'Links',
   description: 'Network link attributes',
-  filePatterns: ['viz-gl-link*.y?(a)ml'],
+  filePatterns: ['**/viz-gl-link*.y?(a)ml', '**/viz-link*.y?(a)ml'],
   component: MyPlugin,
 } as VisualizationPlugin)
 
@@ -593,7 +620,6 @@ export default MyPlugin
 </script>
 
 <style scoped lang="scss">
-@import '~vue-slider-component/theme/default.css';
 @import '@/styles.scss';
 
 .link-volume-plot {
@@ -606,7 +632,7 @@ export default MyPlugin
 }
 
 .link-volume-plot.hide-thumbnail {
-  background: none;
+  background: var(--bgMapPanel);
 }
 
 .plot-container {
@@ -619,26 +645,7 @@ export default MyPlugin
 }
 
 .map-area {
-  grid-column: 1 / 3;
-  grid-row: 1 / 2;
   pointer-events: auto;
-}
-
-.message-pane {
-  grid-column: 1 / 2;
-  grid-row: 2 / 3;
-  // box-shadow: 0px 2px 10px #22222266;
-  margin: 0 auto 0 0;
-  background-color: var(--bgPanel);
-  padding: 0rem 3rem;
-  z-index: 2;
-
-  p {
-    color: var(--textFancy);
-    padding: 0rem 0;
-    font-size: 1.5rem;
-    line-height: 3.25rem;
-  }
 }
 
 .top-panel {
@@ -653,10 +660,20 @@ export default MyPlugin
 
 .bottom-panel {
   display: flex;
-  flex-direction: row;
-  background-color: var(--bgPanel);
+  flex-direction: column;
   font-size: 0.8rem;
   pointer-events: auto;
+  margin: auto auto 0.5rem 0.5rem;
+  filter: drop-shadow(0px 2px 4px #22222233);
+}
+
+.status-message {
+  margin: 0 auto 0.5rem 0;
+  padding: 0.5rem 0.5rem;
+  color: var(--textFancy);
+  background-color: var(--bgPanel);
+  font-size: 1.5rem;
+  line-height: 1.8rem;
 }
 
 .right-side {
@@ -667,10 +684,10 @@ export default MyPlugin
 }
 
 .panel-items {
-  width: 100%;
   display: flex;
   flex-direction: row;
-  margin: 0rem 0.5rem;
+  padding: 0.5rem 0.5rem;
+  background-color: var(--bgPanel);
 }
 
 .panel-item {

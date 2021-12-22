@@ -327,11 +327,16 @@ class MyComponent extends Vue {
 
   private async getVizDetails() {
     try {
-      const text = await this.myState.fileApi.getFileText(
-        this.myState.subfolder + '/' + this.myState.yamlConfig
-      )
+      // might be a project config:
+      const filename =
+        this.myState.yamlConfig.indexOf('/') > -1
+          ? this.myState.yamlConfig
+          : this.myState.subfolder + '/' + this.myState.yamlConfig
+
+      const text = await this.myState.fileApi.getFileText(filename)
       this.vizDetails = yaml.parse(text)
-    } catch (e) {
+    } catch (err) {
+      const e = err as any
       // maybe it failed because password?
       if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
         globalStore.commit('requestLogin', this.myState.fileSystem.slug)
@@ -530,7 +535,7 @@ class MyComponent extends Vue {
     const separator = lines[0].indexOf(';') > 0 ? ';' : ','
 
     // data is in format: o,d, value[1], value[2], value[3]...
-    const headers = lines[0].split(separator).map(a => a.trim())
+    const headers = lines[0].split(separator).map((a) => a.trim())
     this.headers = [this.TOTAL_MSG].concat(headers.slice(1))
   }
 
@@ -862,7 +867,7 @@ class MyComponent extends Vue {
     })
 
     // set hovers
-    this.map.on('mousemove', layerName, function(e: MapMouseEvent) {
+    this.map.on('mousemove', layerName, function (e: MapMouseEvent) {
       const features = parent.map.queryRenderedFeatures(e.point) as any[]
 
       if (features.length > 0) {
@@ -884,7 +889,7 @@ class MyComponent extends Vue {
 
     // When the mouse leaves the state-fill layer, update the feature state of the
     // previously hovered feature.
-    this.map.on('mouseleave', layerName, function() {
+    this.map.on('mouseleave', layerName, function () {
       if (parent.hoveredStateId) {
         parent.map.setFeatureState(
           { source: 'my-data', id: parent.hoveredStateId },
@@ -966,7 +971,7 @@ globalStore.commit('registerPlugin', {
   kebabName: 'link-volumes',
   prettyName: 'Volumes',
   description: 'Aggregate volumes on network links',
-  filePatterns: ['viz-link*.y?(a)ml'],
+  filePatterns: ['**/viz-link-old*.y?(a)ml'],
   component: MyComponent,
 } as VisualizationPlugin)
 

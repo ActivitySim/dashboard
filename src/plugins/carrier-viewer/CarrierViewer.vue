@@ -1,22 +1,3 @@
-<i18n>
-en:
-  carriers: "Carriers"
-  vehicles: "VEHICLES"
-  services: "SERVICES"
-  shipments: "SHIPMENTS"
-  tours: "TOURS"
-  pickup: "Pickup"
-  delivery: "Delivery"
-de:
-  carriers: "Unternehmen"
-  vehicles: "FAHRZEUGE"
-  services: "BETRIEBE"
-  shipments: "LIEFERUNGEN"
-  tours: "TOUREN"
-  pickup: "Abholung"
-  delivery: "Lieferung"
-</i18n>
-
 <template lang="pug">
 .carrier-viewer(:class="{'hide-thumbnail': !thumbnail}"
         :style='{"background": urlThumbnail}' oncontextmenu="return false")
@@ -31,20 +12,21 @@ de:
                 :stopMidpoints="stopMidpoints"
                 :paths="[]"
                 :drtRequests="[]"
+                :dark="globalState.isDarkMode"
                 :traces="[]"
-                :colors="COLOR_OCCUPANCY"
-                :settingsShowLayers="SETTINGS"
                 :center="vizDetails.center"
                 :searchEnabled="searchEnabled"
                 :vehicleLookup="vehicleLookup"
+                :viewId="linkLayerId"
                 :onClick="handleClick")
 
-  .left-side(v-if="detailContent")
-    collapsible-panel(direction="left" :locked="true")
-      h3 Raw Details
-      .panel-items
-        .detail-list
-          pre {{detailContent}}
+  ZoomButtons(v-if="!thumbnail")
+
+  collapsible-panel.left-side(v-if="detailContent" direction="left" :locked="true")
+    h3 Raw Details
+    .panel-items
+      .detail-list
+        pre {{detailContent}}
 
   collapsible-panel.right-side(v-if="isLoaded && !thumbnail" :darkMode="true" direction="right")
 
@@ -53,13 +35,13 @@ de:
       h3(v-if="carriers.length") {{ $t('carriers')}}
 
       .carrier-list
-        .carrier(v-for="carrier in carriers" :key="carrier.$.id"
-                :class="{selected: carrier.$.id==selectedCarrier}")
+        .carrier(v-for="carrier in carriers" :key="carrier.$id"
+                :class="{selected: carrier.$id===selectedCarrier}")
           .carrier-title(@click="handleSelectCarrier(carrier)")
-            i.far(:class="carrier.$.id==selectedCarrier ? 'fa-minus-square' : 'fa-plus-square'")
-            span {{ carrier.$.id }}
+            i.far(:class="carrier.$id===selectedCarrier ? 'fa-minus-square' : 'fa-plus-square'")
+            span {{ carrier.$id }}
 
-          .carrier-details(v-if="carrier.$.id==selectedCarrier")
+          .carrier-details(v-if="carrier.$id===selectedCarrier")
 
             .carrier-section(v-if="tours.length")
               .carrier-title(@click="toggleTours = !toggleTours")
@@ -82,52 +64,70 @@ de:
                 i.far(:class="toggleShipments ? 'fa-minus-square' : 'fa-plus-square'")
                 span  {{ $t('shipments')}}: {{ shipments.length}}
 
-              .leaf.tour(v-for="shipment in toggleShipments ? shipments:[]" :key="shipment.id"
+              .leaf.tour(v-for="shipment in toggleShipments ? shipments:[]" :key="shipment.$id"
                               @click="handleSelectShipment(shipment)"
-                              :class="{selected: shipment==selectedShipment, 'shipment-in-tour': shipmentIdsInTour.includes(shipment.id)}"
-              ) {{ `${shipment.id}: ${shipment.from}-${shipment.to}` }}
+                              :class="{selected: shipment==selectedShipment, 'shipment-in-tour': shipmentIdsInTour.includes(shipment.$id)}"
+              ) {{ `${shipment.$id}: ${shipment.$from}-${shipment.$to}` }}
 
             .carrier-section(v-if="services.length")
               .carrier-title(@click="toggleServices = !toggleServices")
                 i.far(:class="toggleServices ? 'fa-minus-square' : 'fa-plus-square'")
                 span  {{ $t('services')}}: {{ services.length}}
 
-              .leaf.tour(v-for="service in toggleServices ? services:[]" :key="service.id") {{ `${service.id}` }}
+              .leaf.tour(v-for="service in toggleServices ? services:[]" :key="service.$id") {{ `${service.$id}` }}
 
 </template>
 
 <script lang="ts">
+const i18n = {
+  messages: {
+    en: {
+      carriers: 'Carriers',
+      vehicles: 'VEHICLES',
+      services: 'SERVICES',
+      shipments: 'SHIPMENTS',
+      tours: 'TOURS',
+      pickup: 'Pickup',
+      delivery: 'Delivery',
+    },
+    de: {
+      carriers: 'Unternehmen',
+      vehicles: 'FAHRZEUGE',
+      services: 'BETRIEBE',
+      shipments: 'LIEFERUNGEN',
+      tours: 'TOUREN',
+      pickup: 'Abholung',
+      delivery: 'Lieferung',
+    },
+  },
+}
+
 import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
-import Papaparse from 'papaparse'
 import VueSlider from 'vue-slider-component'
 import { ToggleButton } from 'vue-js-toggle-button'
 import readBlob from 'read-blob'
-import { Route } from 'vue-router'
 import YAML from 'yaml'
 import naturalSort from 'javascript-natural-sort'
 import colorMap from 'colormap'
-// import randomcolor from 'randomcolor'
-import vuera from 'vuera'
-import xml2js from 'xml2js'
-import crossfilter from 'crossfilter2'
 import pako from '@aftersim/pako'
 import { blobToArrayBuffer, blobToBinaryString } from 'blob-util'
 import * as coroutines from 'js-coroutines'
 
 import globalStore from '@/store'
-import AnimationView from '@/plugins/agent-animation/AnimationView.vue'
-import DetailsPanel from './DetailsPanel.vue'
 import CollapsiblePanel from '@/components/CollapsiblePanel.vue'
+import DetailsPanel from './DetailsPanel.vue'
+import HTTPFileSystem from '@/js/HTTPFileSystem'
 import LegendColors from '@/components/LegendColors'
-import ModalMarkdownDialog from '@/components/ModalMarkdownDialog.vue'
 import PlaybackControls from '@/components/PlaybackControls.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
+import ZoomButtons from '@/components/ZoomButtons.vue'
+import { parseXML } from '@/js/util'
 
-import XmlFetcher from '@/workers/XmlFetcher'
 import NetworkHelper from '@/workers/NetworkHelper'
 
+import TourViz from './TourViz'
+
 import {
-  ColorScheme,
   FileSystem,
   LegendItem,
   LegendItemType,
@@ -135,10 +135,9 @@ import {
   VisualizationPlugin,
   LIGHT_MODE,
   DARK_MODE,
+  REACT_VIEW_HANDLES,
+  ColorScheme,
 } from '@/Globals'
-
-import TourViz from './TourViz'
-import HTTPFileSystem from '@/js/HTTPFileSystem'
 
 import { VuePlugin } from 'vuera'
 Vue.use(VuePlugin)
@@ -146,6 +145,7 @@ Vue.use(VuePlugin)
 naturalSort.insensitive = true
 
 @Component({
+  i18n,
   components: {
     CollapsiblePanel,
     DetailsPanel,
@@ -155,6 +155,7 @@ naturalSort.insensitive = true
     ToggleButton,
     TourViz,
     VueSlider,
+    ZoomButtons,
   } as any,
 })
 class CarrierPlugin extends Vue {
@@ -168,39 +169,12 @@ class CarrierPlugin extends Vue {
   private yamlConfig!: string
 
   @Prop({ required: false })
+  private config!: any
+
+  @Prop({ required: false })
   private thumbnail!: boolean
 
-  private COLOR_OCCUPANCY: any = {
-    0: [255, 255, 85],
-    1: [32, 96, 255],
-    2: [85, 255, 85],
-    3: [255, 85, 85],
-    4: [200, 0, 0],
-    // 5: [255, 150, 255],
-  }
-
-  COLOR_OCCUPANCY_MATSIM_UNUSED: any = {
-    0: [255, 85, 255],
-    1: [255, 255, 85],
-    2: [85, 255, 85],
-    3: [85, 85, 255],
-    4: [255, 85, 85],
-    5: [255, 85, 0],
-  }
-
-  SETTINGS: { [label: string]: boolean } = {
-    Fahrzeuge: false,
-    Routen: false,
-    'DRT Anfragen': false,
-  }
-
-  private legendItems: LegendItem[] = Object.keys(this.COLOR_OCCUPANCY).map(key => {
-    return { type: LegendItemType.line, color: this.COLOR_OCCUPANCY[key], value: key, label: key }
-  })
-
-  private legendRequests = [
-    { type: LegendItemType.line, color: [255, 0, 255], value: 0, label: '' },
-  ]
+  private linkLayerId = Math.random()
 
   private vizDetails = {
     network: '',
@@ -214,15 +188,12 @@ class CarrierPlugin extends Vue {
 
   public myState = {
     statusMessage: '',
-    clock: '00:00',
-    colorScheme: ColorScheme.DarkMode,
     isRunning: false,
-    isShowingHelp: false,
     fileApi: undefined as HTTPFileSystem | undefined,
     fileSystem: undefined as FileSystemConfig | undefined,
-    subfolder: this.subfolder,
-    yamlConfig: this.yamlConfig,
-    thumbnail: this.thumbnail,
+    subfolder: '',
+    yamlConfig: '',
+    thumbnail: true,
     data: [] as any[],
   }
 
@@ -230,7 +201,6 @@ class CarrierPlugin extends Vue {
   private searchEnabled = false
 
   private globalState = globalStore.state
-  private isDarkMode = this.myState.colorScheme === ColorScheme.DarkMode
   private isLoaded = true
   private showHelp = false
 
@@ -277,7 +247,7 @@ class CarrierPlugin extends Vue {
       return
     }
 
-    this.shownShipments = this.shipments.filter(s => s.id === shipment.id)
+    this.shownShipments = this.shipments.filter((s) => s.$id === shipment.$id)
     this.selectedShipment = shipment
   }
 
@@ -311,12 +281,12 @@ class CarrierPlugin extends Vue {
     let stopCount = 0
 
     for (const activity of tour.plan) {
-      if (activity.shipmentId) {
-        inTour.push(activity.shipmentId)
+      if (activity.$shipmentId) {
+        inTour.push(activity.$shipmentId)
 
         // build list of stop locations -- this is inefficient, should use a map not an array
-        const shipment = this.shipments.find(s => s.id === activity.shipmentId)
-        const link = activity.type === 'pickup' ? shipment.from : shipment.to
+        const shipment = this.shipments.find((s) => s.$id === activity.$shipmentId)
+        const link = activity.$type === 'pickup' ? shipment.$from : shipment.$to
         // skip duplicate pickups/dropoffs at this location
         if (stopMidpoints.length && stopMidpoints[stopMidpoints.length - 1].link === link) {
           continue
@@ -339,8 +309,8 @@ class CarrierPlugin extends Vue {
         delete details.id
 
         stopMidpoints.push({
-          id: shipment.id,
-          type: activity.type === 'pickup' ? this.$t('pickup') : this.$t('delivery'),
+          id: shipment.$id,
+          type: activity.$type === 'pickup' ? this.$t('pickup') : this.$t('delivery'),
           count: stopCount++,
           link,
           midpoint,
@@ -386,7 +356,7 @@ class CarrierPlugin extends Vue {
     let count = 0
 
     const sleep = (milliseconds: number) => {
-      return new Promise(resolve => setTimeout(resolve, milliseconds))
+      return new Promise((resolve) => setTimeout(resolve, milliseconds))
     }
 
     const animationSpeed = tour.routes.length > 20 ? 25 : 50
@@ -425,7 +395,7 @@ class CarrierPlugin extends Vue {
     console.log('carrier', carrier)
     this.currentlyAnimating = null
 
-    const id = carrier.$.id
+    const id = carrier.$id
 
     this.vehicles = []
     this.shipments = []
@@ -438,25 +408,23 @@ class CarrierPlugin extends Vue {
     this.stopMidpoints = []
 
     // unselect carrier
-    if (this.selectedCarrier === carrier.$.id) {
+    if (this.selectedCarrier === id) {
       this.selectedCarrier = ''
       return
     }
 
-    this.selectedCarrier = carrier.$.id
+    this.selectedCarrier = id
 
-    if (carrier.capabilities[0]?.vehicles[0]?.vehicle)
-      this.vehicles = carrier.capabilities[0].vehicles[0].vehicle
-        .map((v: any) => v.$.id)
-        .sort((a: any, b: any) => naturalSort(a, b))
-    // console.log(this.vehicles)
+    // vehicles
+    let vehicles = carrier.capabilities.vehicles.vehicle?.map((veh: any) => veh.$id) || []
+    this.vehicles = vehicles.sort((a: any, b: any) => naturalSort(a, b))
 
     this.shipments = this.processShipments(carrier)
 
-    if (carrier.services[0]?.service)
-      this.services = carrier.services[0].service
+    if (carrier.services?.service?.length)
+      this.services = carrier.services.service
         .map((s: any) => s.$)
-        .sort((a: any, b: any) => naturalSort(a.$.id, b.$.id))
+        .sort((a: any, b: any) => naturalSort(a.$id, b.$id))
 
     // console.log(this.services)
 
@@ -464,59 +432,54 @@ class CarrierPlugin extends Vue {
   }
 
   private processTours(carrier: any) {
-    if (!carrier.plan[0]?.tour) return []
+    if (!carrier.plan?.tour?.length) return []
 
-    // console.log({ tour: carrier.plan[0].tour })
+    const tours: any[] = carrier.plan.tour.map((tour: any) => {
+      // reconstitute the plan. Our XML library builds
+      // two arrays: one for acts and one for legs.
+      // We need them stitched back together in the correct order.
+      const plan = [tour.act[0]]
+      for (let i = 1; i < tour.act.length; i++) {
+        plan.push(tour.leg[i - 1])
+        plan.push(tour.act[i])
+      }
 
-    const tours = carrier.plan[0].tour.map((t: any) => {
-      const plan = t.$$.map((elem: any) => {
-        return Object.assign(elem.$, { $: elem['#name'], route: elem.route })
-      })
-
-      const routes = plan
-        .filter((p: any) => p.$ === 'leg' && p.route[0].length)
-        .map((p: any) => p.route[0].split(' '))
+      // Parse any route strings "123434 234143 14241"
+      const routes = tour.leg
+        .filter((leg: any) => leg.route && leg.route.length)
+        .map((leg: any) => {
+          return leg.route ? leg.route.split(' ') : []
+        })
 
       return {
-        vehicleId: t.$.vehicleId,
+        vehicleId: tour.$vehicleId,
         plan,
         routes,
       }
     })
 
     tours.sort((a: any, b: any) => naturalSort(a.vehicleId, b.vehicleId))
-
     return tours
   }
 
   private processShipments(carrier: any) {
-    if (!carrier.shipments) return []
+    if (!carrier.shipments?.shipment?.length) return []
 
-    let shipments: any[] = []
-    if (carrier.shipments[0]?.shipment)
-      shipments = carrier.shipments[0].shipment
-        .map((s: any) => s.$)
-        .sort((a: any, b: any) => naturalSort(a.id, b.id))
+    const shipments = carrier.shipments.shipment.sort((a: any, b: any) => naturalSort(a.$id, b.$id))
 
     try {
       for (const shipment of shipments) {
         // shipment has link id, so we go from link.from to link.to
-        shipment.fromX = 0.5 * (this.links[shipment.from][0] + this.links[shipment.from][2])
-        shipment.fromY = 0.5 * (this.links[shipment.from][1] + this.links[shipment.from][3])
-        shipment.toX = 0.5 * (this.links[shipment.to][0] + this.links[shipment.to][2])
-        shipment.toY = 0.5 * (this.links[shipment.to][1] + this.links[shipment.to][3])
+        shipment.fromX = 0.5 * (this.links[shipment.$from][0] + this.links[shipment.$from][2])
+        shipment.fromY = 0.5 * (this.links[shipment.$from][1] + this.links[shipment.$from][3])
+        shipment.toX = 0.5 * (this.links[shipment.$to][0] + this.links[shipment.$to][2])
+        shipment.toY = 0.5 * (this.links[shipment.$to][1] + this.links[shipment.$to][3])
       }
     } catch (e) {
       // if xy are missing, skip this -- just means network isn't loaded yet.
     }
 
-    // console.log({ shipments })
     return shipments
-  }
-
-  private async handleSettingChange(label: string) {
-    console.log(label)
-    this.SETTINGS[label] = !this.SETTINGS[label]
   }
 
   // this happens if viz is the full page, not a thumbnail on a project page
@@ -559,23 +522,66 @@ class CarrierPlugin extends Vue {
 
   private async getVizDetails() {
     if (!this.myState.fileApi) return
-    // first get config
-    try {
-      const text = await this.myState.fileApi.getFileText(
-        this.myState.subfolder + '/' + this.myState.yamlConfig
-      )
-      this.vizDetails = YAML.parse(text)
-      if (!this.vizDetails.center) this.vizDetails.center = [13.4, 52.5]
-    } catch (e) {
-      console.log('failed')
-      // maybe it failed because password?
-      if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
-        globalStore.commit('requestLogin', this.myState.fileSystem.slug)
+
+    // are we in a dashboard?
+    if (this.config) {
+      this.vizDetails = Object.assign({}, this.config)
+      return
+    }
+
+    // if a YAML file was passed in, just use it
+    if (this.myState.yamlConfig?.endsWith('yaml') || this.myState.yamlConfig?.endsWith('yml')) {
+      try {
+        const filename =
+          this.myState.yamlConfig.indexOf('/') > -1
+            ? this.myState.yamlConfig
+            : this.myState.subfolder + '/' + this.myState.yamlConfig
+
+        const text = await this.myState.fileApi.getFileText(filename)
+        this.vizDetails = YAML.parse(text)
+        return
+      } catch (e) {
+        console.log('failed')
+        // maybe it failed because password?
+        const err = e as any
+        if (this.myState.fileSystem && this.myState.fileSystem.needPassword && err.status === 401) {
+          globalStore.commit('requestLogin', this.myState.fileSystem.slug)
+        }
+        return
       }
     }
 
-    // title
-    const t = this.vizDetails.title ? this.vizDetails.title : 'Carrier Explorer'
+    // Fine, build the config based on folder contents -------------------------
+    const title = this.myState.yamlConfig.substring(
+      0,
+      15 + this.myState.yamlConfig.indexOf('carriers')
+    )
+
+    // Road network: first try the most obvious network filename:
+    const { files } = await this.myState.fileApi.getDirectory(this.myState.subfolder)
+
+    let network = this.myState.yamlConfig.replaceAll('carriers', 'network')
+    // if the obvious network file doesn't exist, just grab... the first network file:
+    if (files.indexOf(network) == -1) {
+      const allNetworks = files.filter((f) => f.indexOf('output_network') > -1)
+      if (allNetworks.length) network = allNetworks[0]
+      else {
+        this.myState.statusMessage = 'No road network found.'
+        network = ''
+      }
+    }
+
+    this.vizDetails = {
+      network,
+      carriers: this.yamlConfig,
+      title,
+      description: '',
+      center: [],
+      projection: '',
+      thumbnail: '',
+    }
+
+    const t = 'Carrier Explorer'
     this.$emit('title', t)
 
     this.buildThumbnail()
@@ -598,36 +604,20 @@ class CarrierPlugin extends Vue {
     }
   }
 
+  @Watch('$store.state.viewState') viewMoved() {
+    if (!REACT_VIEW_HANDLES[this.linkLayerId]) return
+    REACT_VIEW_HANDLES[this.linkLayerId]()
+  }
+
   @Watch('globalState.authAttempts') private async authenticationChanged() {
     console.log('AUTH CHANGED - Reload')
     if (!this.yamlConfig) this.buildRouteFromUrl()
     await this.getVizDetails()
   }
 
-  @Watch('globalState.colorScheme') private swapTheme() {
-    this.isDarkMode = this.myState.colorScheme === ColorScheme.DarkMode
+  @Watch('globalState.isDarkMode') private swapTheme() {
     this.updateLegendColors()
   }
-
-  // @Watch('searchTerm') private handleSearch() {
-  //   const vehicleNumber = this.vehicleLookupString[this.searchTerm]
-  //   if (vehicleNumber > -1) {
-  //     console.log('vehicle', vehicleNumber)
-  //     this.pathVehicle?.filterExact(vehicleNumber)
-  //     this.traceVehicle?.filterExact(vehicleNumber)
-  //     this.requestVehicle?.filterExact(vehicleNumber)
-  //     this.requestStart.filterAll()
-  //     this.requestEnd.filterAll()
-  //     this.searchEnabled = true
-  //   } else {
-  //     console.log('nope')
-  //     this.pathVehicle?.filterAll()
-  //     this.traceVehicle?.filterAll()
-  //     this.requestVehicle?.filterAll()
-  //     this.searchEnabled = false
-  //   }
-  //   this.updateDatasetFilters()
-  // }
 
   private handleClick(vehicleNumber: any) {
     // null means empty area clicked: clear map.
@@ -637,7 +627,6 @@ class CarrierPlugin extends Vue {
     }
 
     const vehId = this.vehicleLookup[vehicleNumber]
-    console.log(vehId)
 
     // set -- or clear -- search box!
     if (this.searchTerm === vehId) this.searchTerm = ''
@@ -678,11 +667,15 @@ class CarrierPlugin extends Vue {
       bg: '#181518aa',
     }
 
-    return this.myState.colorScheme === ColorScheme.DarkMode ? darkmode : lightmode
+    return this.globalState.isDarkMode ? darkmode : lightmode
   }
 
   private async mounted() {
     globalStore.commit('setFullScreen', !this.thumbnail)
+
+    this.myState.thumbnail = this.thumbnail
+    this.myState.yamlConfig = this.yamlConfig
+    this.myState.subfolder = this.subfolder
 
     this.buildFileApi()
 
@@ -695,12 +688,10 @@ class CarrierPlugin extends Vue {
     this.updateLegendColors()
 
     this.myState.statusMessage = 'Loading carriers...'
-    console.log('loading files')
 
     this.carriers = await this.loadCarriers()
+    await this.$nextTick() // update UI update before network load begins
     this.links = await this.loadNetwork()
-
-    console.log('GO!')
 
     this.myState.statusMessage = ''
   }
@@ -711,29 +702,32 @@ class CarrierPlugin extends Vue {
     const carriersXML = await this.loadFileOrGzippedFile(this.vizDetails.carriers)
     if (!carriersXML) return
 
-    const carriers: any = await this.parseXML(carriersXML)
+    const root: any = await parseXML(carriersXML, {
+      // these elements should always be arrays, even if there's just one element:
+      alwaysArray: [
+        'carriers.carrier',
+        'carriers.carrier.capabilities.vehicles.vehicle',
+        'carriers.carrier.plan.tour',
+        'carriers.carrier.shipments.shipment',
+        'carriers.carrier.services.service',
+      ],
+    })
 
-    // crazy but correct - why is matsim so verbose?
-    const carrierList = carriers.carriers.carrier.sort((a: any, b: any) =>
-      naturalSort(a.$.id, b.$.id)
-    )
-    await this.$nextTick() // update UI update before network load begins
-
-    console.log({ carrierList })
-
+    // sort by '$id' attribute
+    const carrierList = root.carriers.carrier.sort((a: any, b: any) => naturalSort(a.$id, b.$id))
     return carrierList
   }
 
   private async loadNetwork() {
     if (!this.myState.fileApi) return
-
     this.myState.statusMessage = 'Loading network'
+
     if (this.vizDetails.network.indexOf('.xml.') > -1) {
       // matsim xml file
       const networkXML = await this.loadFileOrGzippedFile(this.vizDetails.network)
       if (!networkXML) return
 
-      const network: any = await this.parseXML(networkXML)
+      const network: any = await parseXML(networkXML)
       const convertedNetwork = await this.convertRoadNetwork(network)
       return convertedNetwork
     } else {
@@ -752,7 +746,7 @@ class CarrierPlugin extends Vue {
 
   private async convertRoadNetwork(network: string) {
     this.myState.statusMessage = 'Projecting network...'
-    this.vizDetails.projection = 'EPSG:31464'
+    this.vizDetails.projection = 'EPSG:31468'
 
     this._networkHelper = await NetworkHelper.create({
       xml: network,
@@ -791,50 +785,6 @@ class CarrierPlugin extends Vue {
     this.$store.commit('setFullScreen', false)
   }
 
-  private parseXML(xml: string) {
-    // The '$' object contains a leaf's attributes
-    // The '$$' object contains an explicit array of the children
-    //
-    // Sometimes you can also refer to a child node by name, such as
-    // carrier.shipments
-    //
-    // SHIPMENTS
-    // to get the array of shipment objects, use
-    // carriers.carrier[x].shipments.$$ -> returns array of shipment objects
-    // -- each shipment object: has .$ attributes
-    //
-    // PLANS
-    // plan is at carriers.carrier[x].plan[0] -- are there ever multiple plans?
-    // tour is at plan.tour[x]
-    // -- $ has vehicleId
-    // -- $$ has array of:
-    //       #name --> act/leg
-    //           $ --> other params
-    //       route --> string of links "12345 6789 123"
-
-    // these options are all mandatory for reading the complex carriers
-    // file. The main weirdness is that matsim puts children of different
-    // types in an order that matters (act,leg,act,leg,act... etc)
-
-    const parser = new xml2js.Parser({
-      strict: true,
-      trim: true,
-      preserveChildrenOrder: true,
-      explicitChildren: true,
-      explicitArray: true,
-    })
-
-    return new Promise((resolve, reject) => {
-      parser.parseString(xml, function(err: Error, result: string) {
-        if (err) {
-          reject(err)
-        } else {
-          resolve(result)
-        }
-      })
-    })
-  }
-
   private async loadFileOrGzippedFile(name: string) {
     if (!this.myState.fileApi) return
     console.log('loading', name)
@@ -863,11 +813,10 @@ class CarrierPlugin extends Vue {
   }
 
   private rotateColors() {
-    this.myState.colorScheme =
-      this.myState.colorScheme === ColorScheme.DarkMode
-        ? ColorScheme.LightMode
-        : ColorScheme.DarkMode
-    localStorage.setItem('plugin/agent-animation/colorscheme', this.myState.colorScheme)
+    localStorage.setItem(
+      'plugin/agent-animation/colorscheme',
+      this.globalState.isDarkMode ? ColorScheme.DarkMode : ColorScheme.LightMode
+    )
   }
 }
 
@@ -876,7 +825,7 @@ globalStore.commit('registerPlugin', {
   kebabName: 'carrier-viewer',
   prettyName: 'Carrier Viewer',
   description: 'For freight etc!',
-  filePatterns: ['viz-carrier*.y?(a)ml'],
+  filePatterns: ['**/*output_carriers.xml*'],
   component: CarrierPlugin,
 } as VisualizationPlugin)
 
@@ -884,7 +833,6 @@ export default CarrierPlugin
 </script>
 
 <style scoped lang="scss">
-@import '~vue-slider-component/theme/default.css';
 @import '@/styles.scss';
 
 /* SCROLLBARS
@@ -899,10 +847,10 @@ export default CarrierPlugin
   width: 8px;
 }
 *::-webkit-scrollbar-track {
-  background: $steelGray;
+  background: var(--bgPanel3);
 }
 *::-webkit-scrollbar-thumb {
-  background-color: #454;
+  background-color: var(--textVeryPale);
   border-radius: 12px;
 }
 
@@ -972,20 +920,17 @@ export default CarrierPlugin
 }
 
 .left-side {
-  // white-space: pre-wrap;
-  // margin: 6rem auto 5rem 0;
   position: absolute;
   top: 70%;
-  bottom: 3rem;
-  left: 0;
-  width: 100px;
-  background-color: var(--bgPanel);
-  box-shadow: 0px 2px 10px #111111ee;
+  bottom: 0.5rem;
+  left: 0.5rem;
   color: var(--text);
   display: flex;
   flex-direction: row;
   font-size: 0.8rem;
   pointer-events: auto;
+  background-color: var(--bgPanel);
+  filter: $filterShadow;
 }
 
 .right-side {
@@ -993,7 +938,7 @@ export default CarrierPlugin
   top: 0rem;
   bottom: 0rem;
   right: 0;
-  margin: 6rem 0 5rem 0;
+  margin: 10rem 0 3.5rem 0;
   color: var(--text);
   display: flex;
   flex-direction: row;
@@ -1150,7 +1095,6 @@ input {
 }
 
 .detail-list {
-  // margin-left: 0.5rem;
   width: 250px;
   overflow-y: auto;
   overflow-x: hidden;

@@ -1,12 +1,3 @@
-<i18n>
-en:
-  more-info: 'Documentation:'
-  tagLine: 'the simulation dashboard and data visualizer for ActivitySim'
-de:
-  more-info: 'Für weitere Informationen:'
-  tagLine: 'Der Modellergebnis-Browser der TU Berlin.'
-</i18n>
-
 <template lang="pug">
 .splash-page
 
@@ -23,7 +14,7 @@ de:
         hr
 
         h2: b {{ $t('more-info') }}
-        .splash-readme(v-html="readmeBottom")
+        info-bottom.splash-readme
 
         hr
         h2: b Sponsors
@@ -49,71 +40,93 @@ de:
 </template>
 
 <script lang="ts">
-const readme = require('@/assets/info-top.md')
-const bottom = require('@/assets/info-bottom.md')
+const i18n = {
+  messages: {
+    en: {
+      'more-info': 'Documentation:',
+      tagLine: 'the simulation dashboard and data visualizer for ActivitySim',
+    },
+    de: {
+      'more-info': 'Für weitere Informationen:',
+      tagLine: 'Der Modellergebnis-Browser der TU Berlin.',
+    },
+  },
+}
 
 import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
 
+import globalStore from '@/store'
 import Colophon from '@/components/Colophon.vue'
-import VizCard from '@/components/VizCard.vue'
 import FileSystemProjects from '@/components/FileSystemProjects.vue'
 
-import globalStore from '@/store'
+import InfoBottom from '@/assets/info-bottom.md'
+
+import MTC from '@/assets/images/sponsor-logos/mtc.png'
+import SANDAG from '@/assets/images/sponsor-logos/sandag.jpg'
+import ARC from '@/assets/images/sponsor-logos/arc.png'
+import METCOUNCIL from '@/assets/images/sponsor-logos/metcouncil.png'
+import PSRC from '@/assets/images/sponsor-logos/psrc.png'
+import SEMCOG from '@/assets/images/sponsor-logos/SEMCOG.jpg'
+import OREGON from '@/assets/images/sponsor-logos/oregondot.png'
+import SFCTA from '@/assets/images/sponsor-logos/sfcta.png'
+import MWCOG from '@/assets/images/sponsor-logos/mwcog.png'
+import OHIO from '@/assets/images/sponsor-logos/ohiodot.png'
 
 @Component({
-  components: { Colophon, FileSystemProjects, VizCard },
+  i18n,
+  components: { Colophon, FileSystemProjects, InfoBottom },
 })
 class MyComponent extends Vue {
   private agencies: any[] = [
     {
       name: 'Metropolitan Transportation Commission',
       url: 'https://mtc.ca.gov/',
-      logo: require('@/assets/images/sponsor-logos/mtc.png'),
+      logo: MTC,
     },
     {
       name: 'San Diego Association of Governments',
       url: 'http://www.sandag.org/',
-      logo: require('@/assets/images/sponsor-logos/sandag.jpg'),
+      logo: SANDAG,
     },
     {
       name: 'Atlanta Regional Commission',
       url: 'https://atlantaregional.org/',
-      logo: require('@/assets/images/sponsor-logos/arc.png'),
+      logo: ARC,
     },
     {
       name: 'Metropolitan Council',
       url: 'https://metrocouncil.org/',
-      logo: require('@/assets/images/sponsor-logos/metcouncil.png'),
+      logo: METCOUNCIL,
     },
     {
       name: 'Puget Sound Regional Council',
       url: 'https://www.psrc.org/',
-      logo: require('@/assets/images/sponsor-logos/psrc.png'),
+      logo: PSRC,
     },
     {
       name: 'Southeast Michigan Council of Governments',
       url: 'http://semcog.org/',
-      logo: require('@/assets/images/sponsor-logos/SEMCOG.jpg'),
-    },
-    {
-      name: 'Oregon Department of Transportation',
-      url: 'https://www.oregon.gov/ODOT',
-      logo: require('@/assets/images/sponsor-logos/oregondot.png'),
-    },
-    {
-      name: 'San Francisco County Transportation Authority',
-      url: 'https://www.sfcta.org/',
-      logo: require('@/assets/images/sponsor-logos/sfcta.png'),
+      logo: SEMCOG,
     },
     {
       name: 'Metropolitan Washington Council of Governments',
       url: 'https://www.mwcog.org/',
-      logo: require('@/assets/images/sponsor-logos/mwcog.png'),
+      logo: MWCOG,
+    },
+    {
+      name: 'San Francisco County Transportation Authority',
+      url: 'https://www.sfcta.org/',
+      logo: SFCTA,
+    },
+    {
+      name: 'Oregon Department of Transportation',
+      url: 'https://www.oregon.gov/ODOT',
+      logo: OREGON,
     },
     {
       name: 'Ohio Department of Transportation',
       url: 'https://www.transportation.ohio.gov/',
-      logo: require('@/assets/images/sponsor-logos/ohiodot.png'),
+      logo: OHIO,
     },
   ]
 
@@ -134,9 +147,8 @@ class MyComponent extends Vue {
     this.$emit('navigate', event)
   }
 
-  private state = globalStore.state
-  private readme = readme
-  private readmeBottom = bottom
+  // private readme = readme
+  // private readmeBottom = bottom
 }
 export default MyComponent
 </script>
@@ -201,12 +213,6 @@ a {
   h3 {
     color: white;
   }
-}
-.viz-cards {
-  padding-bottom: 1rem;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  gap: 2rem;
 }
 
 .one-viz {

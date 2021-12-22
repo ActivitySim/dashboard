@@ -1,26 +1,3 @@
-<i18n>
-en:
-  loading: 'Loading data...'
-  sorting: 'Sorting into bins...'
-  threedee: 'Show in 3D'
-  aggregate: 'Summary'
-  maxHeight: 'Max Height'
-  showDetails: 'Show Details'
-  selection: 'Selection'
-  areas: 'Areas'
-  count: 'Count'
-de:
-  loading: 'Dateien laden...'
-  sorting: 'Sortieren...'
-  threedee: 'In 3D anzeigen'
-  aggregate: 'Daten'
-  maxHeight: 'Max Höhe'
-  showDetails: 'Details anzeigen'
-  selection: 'Ausgewählt'
-  areas: 'Orte'
-  count: 'Anzahl'
-</i18n>
-
 <template lang="pug">
 .xy-hexagons(:class="{'hide-thumbnail': !thumbnail}" oncontextmenu="return false")
 
@@ -31,9 +8,10 @@ de:
     @emptyClick="handleEmptyClick"
   )
 
+  zoom-buttons(v-if="!thumbnail")
   drawing-tool.drawing-tool(v-if="!thumbnail")
 
-  .left-side(v-if="isLoaded && !thumbnail")
+  .left-side(v-if="isLoaded && !thumbnail && vizDetails.title")
     collapsible-panel(direction="left" :locked="true")
       .panel-items
         p.big {{ vizDetails.title }}
@@ -44,38 +22,29 @@ de:
         h3(style="margin-top: -1rem;") {{ $t('areas') }}: {{ hexStats.numHexagons }}, {{ $t('count') }}: {{ hexStats.rows }}
         button.button(style="color: #c0f; border-color: #c0f" @click="handleShowSelectionButton") {{ $t('showDetails') }}
 
-  .right-side(v-if="isLoaded && !thumbnail")
-    collapsible-panel(direction="right")
-      .panel-items
-
+  .control-panel(v-if="isLoaded && !thumbnail && !myState.statusMessage"
+    :class="{'is-dashboard': config !== undefined }"
+  )
         .panel-item(v-for="group in Object.keys(aggregations)" :key="group")
           p.speed-label {{ group }}
-          .buttons.has-addons
-            button.button.is-small.aggregation-button(
-              v-for="element,i in aggregations[group]"
-              :key="i"
-              :style="{'margin-bottom': '0.25rem', 'color': activeAggregation===`${group}~${i}` ? 'white' : buttonColors[i], 'border': `1px solid ${buttonColors[i]}`, 'border-right': `0.4rem solid ${buttonColors[i]}`,'border-radius': '4px', 'background-color': activeAggregation===`${group}~${i}` ? buttonColors[i] : $store.state.isDarkMode ? '#333':'white'}"
-              @click="handleOrigDest(group,i)") {{ element.title }}
+          button.button.is-small.aggregation-button(
+            v-for="element,i in aggregations[group]"
+            :key="i"
+            :style="{'margin-bottom': '0.25rem', 'color': activeAggregation===`${group}~${i}` ? 'white' : buttonColors[i], 'border': `1px solid ${buttonColors[i]}`, 'border-right': `0.4rem solid ${buttonColors[i]}`,'border-radius': '4px', 'background-color': activeAggregation===`${group}~${i}` ? buttonColors[i] : $store.state.isDarkMode ? '#333':'white'}"
+            @click="handleOrigDest(group,i)") {{ element.title }}
 
-        .panel-item
-          p.speed-label {{ $t('threedee') }}
-          toggle-button.toggle(:width="40" :value="extrudeTowers" :labels="false"
-            :color="{checked: '#4b7cc4', unchecked: '#222'}"
-            @change="extrudeTowers = !extrudeTowers")
-
-        .panel-item
+        .panel-item.right
           p.speed-label {{ $t('maxHeight') }}: {{ maxHeight }}
           vue-slider.speed-slider(v-model="maxHeight"
-            :min="50" :max="500" :interval="25"
-            :duration="0" :dotSize="16"
+            :min="0" :max="250" :interval="5"
+            :duration="0" :dotSize="12"
             tooltip="none"
           )
 
-        .panel-item
-          p.speed-label Radius: {{ radius }}
+          p.speed-label Hex Radius: {{ radius }}
           vue-slider.speed-slider(v-model="radius"
             :min="50" :max="1000" :interval="5"
-            :duration="0" :dotSize="16"
+            :duration="0" :dotSize="12"
             tooltip="none"
           )
 
@@ -85,17 +54,41 @@ de:
 </template>
 
 <script lang="ts">
+const i18n = {
+  messages: {
+    en: {
+      loading: 'Loading data...',
+      sorting: 'Sorting into bins...',
+      aggregate: 'Summary',
+      maxHeight: '3D Height',
+      showDetails: 'Show Details',
+      selection: 'Selection',
+      areas: 'Areas',
+      count: 'Count',
+    },
+    de: {
+      loading: 'Dateien laden...',
+      sorting: 'Sortieren...',
+      aggregate: 'Daten',
+      maxHeight: '3-D Höhe',
+      showDetails: 'Details anzeigen',
+      selection: 'Ausgewählt',
+      areas: 'Orte',
+      count: 'Anzahl',
+    },
+  },
+}
 import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
 import VueSlider from 'vue-slider-component'
 import { ToggleButton } from 'vue-js-toggle-button'
 import YAML from 'yaml'
-import { spawn, Worker, Thread, ModuleThread } from 'threads'
 
 import util from '@/js/util'
 import globalStore from '@/store'
 import CollapsiblePanel from '@/components/CollapsiblePanel.vue'
 import DrawingTool from '@/components/DrawingTool/DrawingTool.vue'
-import { CSVParser } from './CsvGzipParser.thread'
+import ZoomButtons from '@/components/ZoomButtons.vue'
+import CSVParserWorker from './CsvGzipParser.worker.ts?worker'
 
 import {
   ColorScheme,
@@ -107,7 +100,6 @@ import {
   Status,
 } from '@/Globals'
 
-// import XyHexLayer from './XyHexLayer'
 import XyHexDeckMap from './XyHexDeckMap.vue'
 import HTTPFileSystem from '@/js/HTTPFileSystem'
 
@@ -130,13 +122,14 @@ interface VizDetail {
 }
 
 @Component({
+  i18n,
   components: {
     CollapsiblePanel,
     DrawingTool,
-    // XyHexLayer,
     XyHexDeckMap,
     VueSlider,
     ToggleButton,
+    ZoomButtons,
   } as any,
 })
 class XyHexagons extends Vue {
@@ -150,14 +143,30 @@ class XyHexagons extends Vue {
   private yamlConfig!: string
 
   @Prop({ required: false })
+  private config!: any
+
+  @Prop({ required: false })
   private thumbnail!: boolean
 
+  @Watch('extrudeTowers')
+  private handleExtrude() {
+    if (this.extrudeTowers && this.globalState.viewState.pitch == 0) {
+      globalStore.commit(
+        'setMapCamera',
+        Object.assign({}, this.globalState.viewState, { pitch: 10 })
+      )
+    }
+  }
+
   private radius = 250
-  private maxHeight = 100
-  private extrudeTowers = false
+  private maxHeight = 0
 
   private colorRamps = ['bathymetry', 'par', 'chlorophyll', 'magma']
   private buttonColors = ['#5E8AAE', '#BF7230', '#269367', '#9C439C']
+
+  private aggregations: Aggregations = {}
+  private columnLookup: number[] = []
+  private gzipWorker!: Worker
 
   private get buttonLabel() {
     const [group, offset] = this.activeAggregation.split('~') as any[]
@@ -180,9 +189,9 @@ class XyHexagons extends Vue {
     statusMessage: '',
     fileApi: undefined as HTTPFileSystem | undefined,
     fileSystem: undefined as FileSystemConfig | undefined,
-    subfolder: this.subfolder,
-    yamlConfig: this.yamlConfig,
-    thumbnail: this.thumbnail,
+    subfolder: '',
+    yamlConfig: '',
+    thumbnail: false,
   }
 
   private rowCache: {
@@ -223,6 +232,10 @@ class XyHexagons extends Vue {
       upperPercentile: 100,
       selectedHexStats: this.hexStats,
     }
+  }
+
+  private get extrudeTowers() {
+    return this.maxHeight > 0
   }
 
   private handleEmptyClick() {
@@ -374,36 +387,58 @@ class XyHexagons extends Vue {
   }
 
   private async getVizDetails() {
-    if (!this.myState.fileApi) return
-
-    const hasYaml = new RegExp('.*(yml|yaml)$').test(this.myState.yamlConfig)
-
-    if (!hasYaml) {
-      // output_trips:
-      this.vizDetails = {
-        title: 'Output Trips',
-        description: this.myState.yamlConfig,
-        file: this.myState.yamlConfig,
-        projection: 'EPSG:31468', // 'EPSG:25832', // 'EPSG:31468', // TODO: fix
-        aggregations: {
-          'Trip Summary': [
-            { title: 'Origins', x: 'start_x', y: 'start_y' },
-            { title: 'Destinations', x: 'end_x', y: 'end_y' },
-          ],
-        },
-      }
-      this.$emit('title', this.vizDetails.title)
-      // this.solveProjection()
+    if (this.config) {
+      this.vizDetails = Object.assign({}, this.config)
       return
     }
 
-    // first get config
+    const hasYaml = new RegExp('.*(yml|yaml)$').test(this.myState.yamlConfig)
+
+    if (hasYaml) {
+      await this.loadYamlConfig()
+    } else {
+      this.loadOutputTripsConfig()
+    }
+  }
+
+  private loadOutputTripsConfig() {
+    let projection = 'EPSG:31468' // 'EPSG:25832', // 'EPSG:31468', // TODO: fix
+    if (!this.myState.thumbnail) {
+      projection = prompt('Enter projection: e.g. "EPSG:31468"') || 'EPSG:31468'
+      if (!!parseInt(projection, 10)) projection = 'EPSG:' + projection
+    }
+
+    // output_trips:
+    this.vizDetails = {
+      title: 'Output Trips',
+      description: this.myState.yamlConfig,
+      file: this.myState.yamlConfig,
+      projection,
+      aggregations: {
+        'Trip Summary': [
+          { title: 'Origins', x: 'start_x', y: 'start_y' },
+          { title: 'Destinations', x: 'end_x', y: 'end_y' },
+        ],
+      },
+    }
+    this.$emit('title', this.vizDetails.title)
+    // this.solveProjection()
+    return
+  }
+
+  private async loadYamlConfig() {
+    if (!this.myState.fileApi) return
     try {
-      const text = await this.myState.fileApi.getFileText(
-        this.myState.subfolder + '/' + this.myState.yamlConfig
-      )
+      // might be a project config:
+      const filename =
+        this.myState.yamlConfig.indexOf('/') > -1
+          ? this.myState.yamlConfig
+          : this.myState.subfolder + '/' + this.myState.yamlConfig
+
+      const text = await this.myState.fileApi.getFileText(filename)
       this.vizDetails = YAML.parse(text)
-    } catch (e) {
+    } catch (err) {
+      const e = err as any
       console.log('failed')
       // maybe it failed because password?
       if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
@@ -436,10 +471,6 @@ class XyHexagons extends Vue {
     }
   }
 
-  // @Watch('$store.state.colorScheme') private swapTheme() {
-  //   this.isDarkMode = this.$store.state.colorScheme === ColorScheme.DarkMode
-  // }
-
   private get textColor() {
     const lightmode = {
       text: '#3498db',
@@ -457,7 +488,7 @@ class XyHexagons extends Vue {
   private handleShowSelectionButton() {
     const arrays = Object.values(this.multiSelectedHexagons)
     let points: any[] = []
-    arrays.map(a => (points = points.concat(a)))
+    arrays.map((a) => (points = points.concat(a)))
 
     const pickedObject = { object: { points } }
     this.flipViewToShowInvertedData(pickedObject)
@@ -474,7 +505,7 @@ class XyHexagons extends Vue {
     numHexagons: number
     selectedHexagonIds: any[]
   } | null {
-    const selectedHexes = Object.keys(this.multiSelectedHexagons).map(a => parseInt(a))
+    const selectedHexes = Object.keys(this.multiSelectedHexagons).map((a) => parseInt(a))
     if (!selectedHexes.length) return null
 
     const arrays = Object.values(this.multiSelectedHexagons)
@@ -485,7 +516,7 @@ class XyHexagons extends Vue {
 
   private jumpToCenter() {
     // Only jump in camera is not yet set
-    if (!this.$store.state.viewState.initial) return
+    // if (!this.$store.state.viewState.initial) return
 
     let x = 0
     let y = 0
@@ -516,7 +547,6 @@ class XyHexagons extends Vue {
     // jump!
     const currentView = this.$store.state.viewState
     const jumpView = {
-      jump: true,
       longitude: x,
       latitude: y,
       bearing: currentView.bearing,
@@ -529,6 +559,10 @@ class XyHexagons extends Vue {
 
   private async mounted() {
     this.$store.commit('setFullScreen', !this.thumbnail)
+
+    this.myState.thumbnail = this.thumbnail
+    this.myState.yamlConfig = this.yamlConfig
+    this.myState.subfolder = this.subfolder
 
     this.buildFileApi()
     await this.getVizDetails()
@@ -552,8 +586,8 @@ class XyHexagons extends Vue {
 
   private beforeDestroy() {
     try {
-      if (this.gzipParser) {
-        Thread.terminate(this.gzipParser)
+      if (this.gzipWorker) {
+        this.gzipWorker.terminate()
       }
     } catch (e) {
       console.warn(e)
@@ -562,40 +596,35 @@ class XyHexagons extends Vue {
     this.$store.commit('setFullScreen', false)
   }
 
-  private aggregations: Aggregations = {}
-  private columnLookup: number[] = []
-
-  private gzipParser!: ModuleThread
-
   private async parseCSVFile(filename: string) {
     if (!this.myState.fileSystem) return
     this.myState.statusMessage = 'Loading file...'
 
     // get the raw unzipped arraybuffer
-    this.gzipParser = await spawn<CSVParser>(new Worker('./CsvGzipParser.thread'))
+    this.gzipWorker = new CSVParserWorker()
 
-    const parent = this
-    await this.gzipParser
-      .startLoading(
-        filename,
-        this.myState.fileSystem,
-        this.vizDetails.aggregations,
-        this.vizDetails.projection
-      )
-      .subscribe({
-        next(msg) {
-          parent.myState.statusMessage = msg
-        },
-        async complete() {
-          const { rowCache, columnLookup } = await parent.gzipParser.results()
-          Thread.terminate(parent.gzipParser)
+    this.gzipWorker.onmessage = async (buffer: MessageEvent) => {
+      if (buffer.data.status) {
+        this.myState.statusMessage = buffer.data.status
+      } else if (buffer.data.error) {
+        this.myState.statusMessage = buffer.data.error
+        this.$store.commit('setStatus', {
+          type: Status.ERROR,
+          msg: `Error loading: ${this.myState.subfolder}/${this.vizDetails.file}`,
+        })
+      } else {
+        const { rowCache, columnLookup } = buffer.data
+        this.gzipWorker.terminate()
+        this.dataIsLoaded({ rowCache, columnLookup })
+      }
+    }
 
-          parent.dataIsLoaded({ rowCache, columnLookup })
-        },
-        error() {
-          console.log('GOT YOU!')
-        },
-      })
+    this.gzipWorker.postMessage({
+      filepath: filename,
+      fileSystem: this.myState.fileSystem,
+      aggregations: this.vizDetails.aggregations,
+      projection: this.vizDetails.projection,
+    })
   }
 
   private dataIsLoaded({ rowCache, columnLookup }: any) {
@@ -613,13 +642,12 @@ class XyHexagons extends Vue {
 
     try {
       let filename = `${this.myState.subfolder}/${this.vizDetails.file}`
-
       await this.parseCSVFile(filename)
     } catch (e) {
       console.error(e)
       this.myState.statusMessage = '' + e
       this.$store.commit('setStatus', {
-        type: Status.WARNING,
+        type: Status.ERROR,
         msg: `Error loading/parsing: ${this.myState.subfolder}/${this.vizDetails.file}`,
       })
     }
@@ -631,7 +659,7 @@ globalStore.commit('registerPlugin', {
   kebabName: 'xy-hexagons',
   prettyName: 'XY Aggregator',
   description: 'Collects XY data into geographic hexagons',
-  filePatterns: ['viz-xy*.y?(a)ml', '*output_trips.csv?(.gz)'],
+  filePatterns: ['**/viz-xy*.y?(a)ml', '*output_trips.csv?(.gz)'],
   component: XyHexagons,
 } as VisualizationPlugin)
 
@@ -639,29 +667,32 @@ export default XyHexagons
 </script>
 
 <style scoped lang="scss">
-@import '~vue-slider-component/theme/default.css';
 @import '@/styles.scss';
 
 .xy-hexagons {
-  display: grid;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
   min-height: $thumbnailHeight;
   background: url('assets/thumbnail.jpg') center / cover no-repeat;
-  grid-template-columns: auto 1fr min-content;
-  grid-template-rows: auto 1fr auto;
-  grid-template-areas:
-    'leftside    .  rightside'
-    '.     .        rightside'
-    '.           .  rightside';
+  z-index: -1;
 }
 
 .xy-hexagons.hide-thumbnail {
   background: none;
+  z-index: 0;
 }
 
 .message {
   z-index: 5;
-  grid-column: 1 / 4;
-  grid-row: 1 / 4;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
   box-shadow: 0px 2px 10px #22222222;
   display: flex;
   flex-direction: row;
@@ -695,10 +726,7 @@ export default XyHexagons
 }
 
 .speed-slider {
-  flex: 1;
-  width: 100%;
-  margin: 0rem 0.5rem 0.25rem 0.25rem;
-  font-weight: bold;
+  min-width: 6rem;
 }
 
 .status-message {
@@ -715,7 +743,9 @@ export default XyHexagons
 }
 
 .left-side {
-  grid-area: leftside;
+  position: absolute;
+  top: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   font-size: 0.8rem;
@@ -723,52 +753,34 @@ export default XyHexagons
   margin: 0 0 0 0;
 }
 
-.right-side {
-  grid-area: rightside;
-  display: flex;
-  flex-direction: column;
-  font-size: 0.8rem;
-  pointer-events: auto;
-  margin-top: auto;
-  // margin-bottom: 3rem;
-}
-
-.playback-stuff {
-  flex: 1;
-}
-
-.bottom-area {
+.control-panel {
+  position: absolute;
+  bottom: 0;
   display: flex;
   flex-direction: row;
-  margin-bottom: 2rem;
-  grid-area: playback;
-  padding: 0rem 1rem 1rem 2rem;
+  font-size: 0.8rem;
+  margin: 0 0 0.5rem 0.5rem;
   pointer-events: auto;
+  background-color: var(--bgPanel);
+  padding: 0.5rem 0.5rem;
+  filter: drop-shadow(0px 2px 4px #22222233);
 }
 
-.settings-area {
-  z-index: 20;
-  pointer-events: auto;
-  background-color: $steelGray;
-  color: white;
-  font-size: 0.8rem;
-  padding: 0.25rem 0;
-  margin: 1.5rem 0rem 0 0;
+.is-dashboard {
+  position: static;
+  margin: 0 0;
+  padding: 0.25rem 0 0 0;
+  filter: unset;
+  background-color: unset;
 }
 
 .hex-layer {
-  grid-column: 1 / 4;
-  grid-row: 1 / 4;
   pointer-events: auto;
 }
 
 .speed-label {
   font-size: 0.8rem;
   font-weight: bold;
-}
-
-p.speed-label {
-  margin-bottom: 0.25rem;
 }
 
 .tooltip {
@@ -781,7 +793,13 @@ p.speed-label {
 }
 
 .panel-item {
-  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  margin-right: 1rem;
+}
+
+.right {
+  margin-left: auto;
 }
 
 input {
@@ -795,24 +813,11 @@ input {
   grid-template-columns: 'auto 1fr';
 }
 
-label {
-  margin: auto 0 auto 0rem;
-  text-align: 'left';
-}
-
-.toggle {
-  margin-bottom: 0.25rem;
-  margin-right: 0.5rem;
-}
-
-.aggregation-button {
-  width: 100%;
-}
-
 .drawing-tool {
+  position: absolute;
+  top: 0;
+  right: 0;
   pointer-events: none;
-  grid-column: 1 / 4;
-  grid-row: 1 / 4;
 }
 
 @media only screen and (max-width: 640px) {

@@ -4,6 +4,7 @@
   .center-area
     login-panel.login-panel
     router-view.main-content
+    p(style="text-justify: center; margin: auto auto; font-size: 2rem;"): i • S i m W r a p p e r •
 
   .message-zone(v-if="state.statusErrors.length")
     .message-error(v-for="err,i in state.statusErrors")
@@ -13,18 +14,21 @@
 
 </template>
 
-<i18n>
-en:
-  light: 'light'
-  dark: 'dark'
-  share: 'share'
-de:
-  light: 'hell'
-  dark: 'dark'
-  share: 'freigeben'
-</i18n>
-
 <script lang="ts">
+const i18n = {
+  messages: {
+    en: {
+      light: 'light',
+      dark: 'dark',
+      share: 'share',
+    },
+    de: {
+      light: 'hell',
+      dark: 'dark',
+      share: 'teilen',
+    },
+  },
+}
 import maplibregl from 'maplibre-gl'
 import Buefy from 'buefy'
 import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
@@ -40,7 +44,7 @@ import LoginPanel from '@/components/LoginPanel.vue'
 const writableMapBox: any = maplibregl
 writableMapBox.accessToken = MAPBOX_TOKEN
 
-@Component({ components: { LoginPanel } })
+@Component({ i18n, components: { LoginPanel } })
 class App extends Vue {
   private state = globalStore.state
 
@@ -53,7 +57,6 @@ class App extends Vue {
       : ColorScheme.LightMode
 
     if (theme === ColorScheme.DarkMode) this.$store.commit('rotateColors')
-
     document.body.style.backgroundColor = theme === ColorScheme.LightMode ? '#edebe4' : '#2d3133'
 
     this.toggleFullScreen(true)
@@ -102,8 +105,9 @@ export default App
 
 <style lang="scss">
 @import '@/styles.scss';
-@import '~buefy/dist/buefy.css';
-@import '~maplibre-gl/dist/maplibre-gl.css';
+@import '~/buefy/dist/buefy.css';
+@import '~/maplibre-gl/dist/maplibre-gl.css';
+@import '~/vue-slider-component/theme/default.css';
 
 html {
   box-sizing: border-box;
@@ -235,10 +239,6 @@ h3 {
   grid-template-rows: auto auto 1fr;
   margin: 0 0;
   padding: 0 0;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 a {
@@ -363,12 +363,6 @@ a:hover {
   width: min-content !important;
 }
 
-.right-side {
-  display: flex;
-  flex-direction: row;
-  margin-left: auto;
-}
-
 .top-action-button {
   -moz-user-select: none;
   -webkit-user-select: none;
@@ -425,16 +419,22 @@ a:hover {
   }
 }
 
-a.mapboxgl-ctrl-logo {
-  filter: opacity(50%);
-  margin-left: -0.5rem;
+// MapLibre Logo
+.mapboxgl-ctrl-bottom-left {
+  filter: var(--logoOpacity);
+  bottom: 1.5em;
+  right: 0.8rem;
+  left: unset;
+  z-index: 0;
 }
 
+// Mapbox Improve this Map attribution
 .mapboxgl-ctrl-bottom-right {
-  filter: opacity(70%);
-  right: unset;
-  left: 7rem;
+  filter: var(--logoOpacity);
+  right: 0.5rem;
   bottom: 0.5rem;
+  left: unset;
+  z-index: 0;
 }
 
 .mapboxgl-popup-content {
@@ -487,6 +487,11 @@ a.mapboxgl-ctrl-logo {
 
 .deck-tooltip {
   position: 'static';
+}
+
+// sankey text colors don't break thru, sigh
+.node-title {
+  fill: var(--text);
 }
 
 @media only screen and (max-width: 640px) {

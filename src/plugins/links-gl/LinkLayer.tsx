@@ -16,7 +16,6 @@ enum COLUMNS {
 
 export default function Component({
   geojson = [] as any[],
-  // viewState = { center: [11.34, 48.3], zoom: 5, bearing: 0, pitch: 0 } as any,
   colors = 'viridis',
   dark = false,
   scaleWidth = 250,
@@ -43,7 +42,7 @@ export default function Component({
   const rows = buildData
 
   const [viewState, setViewState] = useState(globalStore.state.viewState)
-  const [hoverInfo, setHoverInfo] = useState({})
+  // const [hoverInfo, setHoverInfo] = useState({})
 
   const builtColors = colormap({
     colormap: colors,
@@ -114,11 +113,10 @@ export default function Component({
     globalStore.commit('setMapCamera', view)
   }
 
-  function renderTooltip({ hoverInfo }: any) {
-    const { object, x, y } = hoverInfo
+  function getTooltip({ object }: any) {
     if (!object) return null
 
-    const value = rows[object[COLUMNS.offset]]
+    let value = rows[object[COLUMNS.offset]]
 
     let baseValue = 0
     let diff = undefined
@@ -130,31 +128,21 @@ export default function Component({
       if (value === undefined) return null
     }
 
-    // const roundValue = Math.round(value * 100.0) / 100.0
-    // const roundDiff = diff ? Math.round(diff * 100.0) / 100.0 : diff
+    const roundValue = Math.round(value * 10000.0) / 10000.0
+    const roundDiff = diff ? Math.round(diff * 10000.0) / 10000.0 : diff
 
-    const baseElement = baseValue ? <p>+/- Base: {diff}</p> : null
+    const baseElement = baseValue ? <p>+/- Base: {roundDiff}</p> : null
 
-    return (
-      <div
-        className="tooltip"
-        style={{
-          backgroundColor: dark ? '#445' : 'white',
-          color: dark ? 'white' : '#222',
-          padding: '1rem 1rem',
-          position: 'absolute',
-          left: x + 4,
-          top: y - 80,
-          boxShadow: '0px 2px 10px #22222266',
-        }}
-      >
-        <big>
-          <b>{header[activeColumn]}</b>
-        </big>
-        <p>{value}</p>
-        {baseElement}
-      </div>
-    )
+    return {
+      html: `
+        <big><b>${header[activeColumn]}</b></big>
+        <p>${roundValue}</p>
+        ${baseElement || ''}
+      `,
+      style: dark
+        ? { color: '#ccc', backgroundColor: '#2a3c4f' }
+        : { color: '#223', backgroundColor: 'white' },
+    }
   }
 
   const layers = [
@@ -173,10 +161,8 @@ export default function Component({
 
       getSourcePosition: (link: any[]) => link[COLUMNS.coordFrom],
       getTargetPosition: (link: any[]) => link[COLUMNS.coordTo],
-
       getColor: getLineColor,
       getWidth: getLineWidth,
-      onHover: setHoverInfo,
 
       updateTriggers: {
         getColor: [showDiffs, dark, colors, activeColumn],
@@ -198,7 +184,10 @@ export default function Component({
       viewState={viewState}
       controller={true}
       pickingRadius={5}
-      getCursor={() => 'pointer'}
+      getTooltip={getTooltip}
+      getCursor={({ isDragging, isHovering }: any) =>
+        isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'
+      }
       onClick={handleClick}
       onViewStateChange={(e: any) => handleViewState(e.viewState)}
     >
@@ -206,13 +195,10 @@ export default function Component({
         /*
         // @ts-ignore */
         <StaticMap
-          reuseMaps
           mapStyle={dark ? MAP_STYLES.dark : MAP_STYLES.light}
-          preventStyleDiffing={true}
           mapboxApiAccessToken={MAPBOX_TOKEN}
         />
       }
-      {renderTooltip({ hoverInfo })}
     </DeckGL>
   )
 }

@@ -44,14 +44,14 @@
 
 
   //- COLOR PICKER
-  .panel-item.color-picker(v-if="activeColumn > -1"
+  .panel-item.last-item(v-if="activeColumn > -1"
     :style="{pointerEvents: showDiffs ? 'none': 'auto', opacity: showDiffs ? 0.4 : 1.0}"
   )
     p: b {{ $t('colors') }}
       .dropdown.is-up.full-width(:class="{'is-active': isColorButtonActive}")
         .dropdown-trigger
           img.color-button(v-bind:style="[isDarkMode ? {'transform' : 'scaleX(1)'} : {'transform' : 'scaleX(-1)'}]"
-                          :src="`${pathColorScale}scale-${selectedColorRamp}.png`"
+                          :src="getColorRampUrl(selectedColorRamp)"
                           @click="() => this.isColorButtonActive = !this.isColorButtonActive"
           )
 
@@ -61,28 +61,31 @@
                             @click="handleColorRamp(colorRamp)"
                             :style="{'padding': '0.25rem 0.25rem'}")
               img.swap-color(v-bind:style="[isDarkMode ? {'transform' : 'scaleX(1)'} : {'transform' : 'scaleX(-1)'}]"
-                            :src="`${pathColorScale}scale-${colorRamp}.png`")
+                            :src="getColorRampUrl(colorRamp)")
               p(:style="{'lineHeight': '1rem', 'marginBottom':'0.25rem'}") {{ colorRamp }}
 
 </template>
 
-<i18n>
-en:
-  selectColumn: "Select data column"
-  loading: "Loading..."
-  bandwidths: "Widths: 1 pixel ="
-  timeOfDay: "Time of day"
-  colors: "Colors"
-
-de:
-  selectColumn: "Datenspalte wählen"
-  loading: "Laden..."
-  bandwidths: "Linienbreiten: 1 pixel ="
-  timeOfDay: "Uhrzeit"
-  colors: "Farben"
-</i18n>
-
 <script lang="ts">
+const i18n = {
+  messages: {
+    en: {
+      selectColumn: 'Select data column',
+      loading: 'Loading...',
+      bandwidths: 'Widths: 1 pixel =:',
+      timeOfDay: 'Time of day',
+      colors: 'Colors',
+    },
+    de: {
+      selectColumn: 'Datenspalte wählen',
+      loading: 'Laden...',
+      bandwidths: 'Linienbreiten: 1 pixel =:',
+      timeOfDay: 'Uhrzeit',
+      colors: 'Farben',
+    },
+  },
+}
+
 import { Vue, Component, Watch, Prop } from 'vue-property-decorator'
 import { debounce } from 'debounce'
 
@@ -90,11 +93,13 @@ import globalStore from '@/store'
 import TimeSlider from './TimeSlider.vue'
 import { ColorScheme } from '@/Globals'
 
-@Component({ components: { TimeSlider } })
-export default class VueComponent extends Vue {
-  //@Prop({ required: true })
-  //private darkMode!: boolean
+import imgViridis from '/colors/scale-viridis.png'
+import imgInferno from '/colors/scale-inferno.png'
+import imgBlueRed from '/colors/scale-bluered.png'
+import imgPicnic from '/colors/scale-picnic.png'
 
+@Component({ i18n, components: { TimeSlider } })
+export default class VueComponent extends Vue {
   @Prop({ required: true })
   private activeColumn!: number
 
@@ -116,28 +121,31 @@ export default class VueComponent extends Vue {
   @Prop({ required: true })
   private selectedColorRamp!: string
 
-  private pathColorScale = '/simwrapper/colors/'
   private isButtonActive = false
   private isColorButtonActive = false
 
-  private scaleWidthValue = '' + this.scaleWidth
+  private scaleWidthValue = ''
 
-  private colorRamps: { [title: string]: { png: string; diff?: boolean } } = {
-    viridis: { png: 'scale-viridis.png' },
-    inferno: { png: 'scale-inferno.png' },
-    bluered: { png: 'scale-salinity.png', diff: true },
-    picnic: { png: 'scale-picnic.png' },
+  private globalState = globalStore.state
+  private isDarkMode = globalStore.state.isDarkMode
+
+  private colorRamps: { [title: string]: { png: any; diff?: boolean } } = {
+    viridis: { png: imgViridis },
+    inferno: { png: imgInferno },
+    bluered: { png: imgBlueRed, diff: true },
+    picnic: { png: imgPicnic },
   }
 
   @Watch('scaleWidth') handleScaleWidth() {
     this.scaleWidthValue = '' + this.scaleWidth
   }
 
-  private globalState = globalStore.state
-  private isDarkMode = this.globalState.colorScheme === ColorScheme.DarkMode
-
   private mounted() {
     this.scaleWidthValue = '' + this.scaleWidth
+  }
+
+  private getColorRampUrl(ramp: string) {
+    return this.colorRamps[ramp].png
   }
 
   @Watch('scaleWidthValue') handleScaleChanged() {
@@ -151,13 +159,13 @@ export default class VueComponent extends Vue {
 
   private changeColorForDarkMode() {
     if (this.isDarkMode) {
-      ;(document.getElementsByClassName('color-button') as HTMLCollectionOf<
-        HTMLElement
-      >)[0].style.transform = 'scaleX(1)'
+      ;(
+        document.getElementsByClassName('color-button') as HTMLCollectionOf<HTMLElement>
+      )[0].style.transform = 'scaleX(1)'
     } else {
-      ;(document.getElementsByClassName('color-button') as HTMLCollectionOf<
-        HTMLElement
-      >)[0].style.transform = 'scaleX(-1)'
+      ;(
+        document.getElementsByClassName('color-button') as HTMLCollectionOf<HTMLElement>
+      )[0].style.transform = 'scaleX(-1)'
     }
 
     var i
@@ -238,8 +246,6 @@ export default class VueComponent extends Vue {
 @import '@/styles.scss';
 
 .config-panel {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
   display: flex;
   flex-direction: row;
 }
@@ -251,6 +257,10 @@ export default class VueComponent extends Vue {
 
 .panel-item {
   padding-right: 1rem;
+}
+
+.last-item {
+  padding-right: 0;
 }
 
 p {
@@ -304,7 +314,7 @@ input {
   width: 100%;
 }
 
-@media only screen and (max-width: 1024px) {
+@media only screen and (max-width: 768px) {
   .config-panel {
     flex-direction: column;
   }

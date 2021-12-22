@@ -1,6 +1,7 @@
 <template lang="pug">
 .map-layout
   polygon-and-circle-map.choro-map(:props="mapProps")
+  zoom-buttons
 
   .config-bar
     img.img-button(@click="useCircles=false"
@@ -18,23 +19,25 @@
 
 <script lang="ts">
 import { Vue, Component, Watch, Prop } from 'vue-property-decorator'
-import { Worker, spawn, Thread } from 'threads'
 import bulmaSlider from 'bulma-slider'
 import * as turf from '@turf/turf'
 
 import { FileSystemConfig } from '@/Globals'
 import PolygonAndCircleMap from '@/components/PolygonAndCircleMap.vue'
-import HTTPFileSystem from '@/js/HTTPFileSystem'
+import ZoomButtons from '@/components/ZoomButtons.vue'
 
-@Component({ components: { PolygonAndCircleMap } })
+import HTTPFileSystem from '@/js/HTTPFileSystem'
+import DashboardDataManager from '@/js/DashboardDataManager'
+
+@Component({ components: { PolygonAndCircleMap, ZoomButtons } })
 export default class VueComponent extends Vue {
   @Prop({ required: true }) fileSystemConfig!: FileSystemConfig
   @Prop({ required: true }) subfolder!: string
   @Prop({ required: true }) files!: string[]
   @Prop({ required: true }) config!: any
+  @Prop({ required: true }) datamanager!: DashboardDataManager
 
   private fileApi!: HTTPFileSystem
-  private thread!: any
   private boundaries: any[] = []
   private centroids: any[] = []
 
@@ -44,7 +47,7 @@ export default class VueComponent extends Vue {
   private sliderOpacity = 80
 
   private maxValue = 1000
-  private expColors = this.config.exponentColors
+  private expColors = false
 
   private get mapProps() {
     return {
@@ -60,6 +63,8 @@ export default class VueComponent extends Vue {
   }
 
   private async mounted() {
+    this.expColors = this.config.exponentColors
+
     this.fileApi = new HTTPFileSystem(this.fileSystemConfig)
     // bulmaSlider.attach()
 
@@ -71,12 +76,63 @@ export default class VueComponent extends Vue {
     this.$emit('isLoaded')
   }
 
+  private beforeDestroy() {
+    this.datamanager.removeFilterListener(this.config, this.handleFilterChanged)
+  }
+
+  private async handleMapClick(click: any) {
+    try {
+      const { x, y, data } = click.points[0]
+
+      const filter = this.config.groupBy
+      const value = x
+
+      this.datamanager.setFilter(this.config.dataset, filter, value)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  private async handleFilterChanged() {
+    console.log('CHANGED FILTER')
+    // try {
+    //   const { filteredRows } = await this.datamanager.getFilteredDataset(this.config)
+
+    //   // is filter UN-selected?
+    //   if (!filteredRows) {
+    //     this.data = [this.data[0]]
+    //     this.data[0].opacity = 1.0
+    //     return
+    //   }
+
+    //   const fullDataCopy = Object.assign({}, this.data[0])
+
+    //   fullDataCopy.x = filteredRows.x
+    //   fullDataCopy.y = filteredRows.y
+    //   fullDataCopy.opacity = 1.0
+    //   fullDataCopy.name = 'Filtered'
+    //   //@ts-ignore - let plotly manage bar colors EXCEPT the filter
+    //   fullDataCopy.marker = { color: '#ffaf00' } // 3c6' }
+
+    //   this.data = [this.data[0], fullDataCopy]
+    //   this.data[0].opacity = 0.3
+    //   this.data[0].name = 'All'
+    // } catch (e) {
+    //   const message = '' + e
+    //   console.log(message)
+    //   this.dataRows = {}
+    // }
+  }
+
   private async loadBoundaries() {
     if (!this.config.boundaries) return
 
+    // const { allRows } = await this.datamanager.getDataset(this.config)
+    // this.datamanager.addFilterListener(this.config, this.handleFilterChanged)
+
     try {
       if (this.config.boundaries.startsWith('http')) {
-        const boundaries = await fetch(this.config.boundaries).then(async r => await r.json())
+        const boundaries = await fetch(this.config.boundaries).then(async (r) => await r.json())
         this.boundaries = boundaries.features
       } else {
         const boundaries = await this.fileApi.getFileJson(
@@ -104,26 +160,15 @@ export default class VueComponent extends Vue {
   }
 
   private async loadDataset() {
-    // cancel any loose threads first
-    if (this.thread) Thread.terminate(this.thread)
-    this.thread = await spawn(new Worker('../workers/DataFetcher.thread'))
-
     try {
-      const data = await this.thread.fetchData({
-        fileSystemConfig: this.fileSystemConfig,
-        subfolder: this.subfolder,
-        files: this.files,
-        config: this.config,
-      })
-
-      this.dataRows = data
+      const dataset = await this.datamanager.getDataset(this.config)
+      // this.datamanager.addFilterListener(this.config, this.handleFilterChanged)
+      this.dataRows = dataset.allRows || []
     } catch (e) {
       const message = '' + e
       console.log(message)
-      this.dataRows = []
-    } finally {
-      Thread.terminate(this.thread)
     }
+    return []
   }
 
   private updateChart() {
@@ -139,14 +184,14 @@ export default class VueComponent extends Vue {
     // 1. make the lookup
     const lookup: any = {}
     const id = this.config.datasetJoinCol
-    this.dataRows.forEach(row => {
+    this.dataRows.forEach((row) => {
       if (row[id]) lookup[`${row[id]}`] = row // lookup in geojson is always string
     })
 
     // 2. insert values into geojson
     const idColumn = this.config.boundariesJoinCol
     let vMax = -1
-    this.boundaries.forEach(boundary => {
+    this.boundaries.forEach((boundary) => {
       const lookupValue = boundary.properties[idColumn]
       const row = lookup[lookupValue]
       boundary.properties.value = row ? row[this.config.datasetValue] : 'N/A'
@@ -156,7 +201,7 @@ export default class VueComponent extends Vue {
     if (vMax) this.maxValue = vMax
 
     // 3. insert values into centroids
-    this.centroids.forEach(centroid => {
+    this.centroids.forEach((centroid) => {
       const lookupValue = centroid.properties!.id
       if (!lookupValue) return
 

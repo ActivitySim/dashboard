@@ -107,9 +107,9 @@ class MyComponent extends Vue {
     isShowingHelp: false,
     fileApi: this.fileApi,
     fileSystem: undefined as FileSystemConfig | undefined,
-    subfolder: this.subfolder,
-    yamlConfig: this.yamlConfig,
-    thumbnail: this.thumbnail,
+    subfolder: '',
+    yamlConfig: '',
+    thumbnail: false,
   }
 
   private globalState = globalStore.state
@@ -212,14 +212,19 @@ class MyComponent extends Vue {
   private async getVizDetails() {
     // first get config
     try {
-      const text = await this.myState.fileApi.getFileText(
-        this.myState.subfolder + '/' + this.myState.yamlConfig
-      )
+      // might be a project config:
+      const filename =
+        this.myState.yamlConfig.indexOf('/') > -1
+          ? this.myState.yamlConfig
+          : this.myState.subfolder + '/' + this.myState.yamlConfig
+
+      const text = await this.myState.fileApi.getFileText(filename)
       this.vizDetails = yaml.parse(text)
     } catch (e) {
       console.log('failed')
       // maybe it failed because password?
-      if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
+      const err = e as any
+      if (this.myState.fileSystem && this.myState.fileSystem.needPassword && err.status === 401) {
         globalStore.commit('requestLogin', this.myState.fileSystem.slug)
       }
     }
@@ -309,6 +314,10 @@ class MyComponent extends Vue {
   private async mounted() {
     globalStore.commit('setFullScreen', !this.thumbnail)
 
+    this.myState.thumbnail = this.thumbnail
+    this.myState.yamlConfig = this.yamlConfig
+    this.myState.subfolder = this.subfolder
+
     if (!this.yamlConfig) this.buildRouteFromUrl()
 
     await this.getVizDetails()
@@ -362,7 +371,7 @@ globalStore.commit('registerPlugin', {
   kebabName: 'agent-animation',
   prettyName: 'Agent Animation',
   description: 'birds',
-  filePatterns: ['viz-agent-anim*.y?(a)ml'],
+  filePatterns: ['**/viz-agent-anim*.y?(a)ml'],
   component: MyComponent,
 } as VisualizationPlugin)
 
@@ -370,7 +379,7 @@ export default MyComponent
 </script>
 
 <style scoped lang="scss">
-@import '~vue-slider-component/theme/default.css';
+@import '~/vue-slider-component/theme/default.css';
 @import '@/styles.scss';
 
 #v3-app {

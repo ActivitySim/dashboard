@@ -1,21 +1,16 @@
-<i18n>
-en:
-  metrics: 'Metrics'
-  viewer: 'Transit Network'
-de:
-  metrics: 'Metrics'
-  viewer: 'ÖV Netzwerk'
-</i18n>
-
 <template lang="pug">
 .transit-viz(:class="{'hide-thumbnail': !thumbnail}")
-
   .map-container(:class="{'hide-thumbnail': !thumbnail }")
-    div(:id="mapID" style="height: 100%; width: 100%; flex: 1")
+    div.map-styles(:id="mapID")
       .stop-marker(v-for="stop in stopMarkers" :key="stop.i"
         :style="{transform: 'translate(-50%,-50%) rotate('+stop.bearing+'deg)', left: stop.xy.x + 'px', top: stop.xy.y+'px'}"
       )
 
+    legend-box.legend(v-if="!thumbnail"
+      :rows="legendRows"
+    )
+
+  zoom-buttons(v-if="!thumbnail")
   drawing-tool(v-if="!thumbnail")
 
   collapsible-panel.left-side(v-if="!thumbnail"
@@ -24,7 +19,7 @@ de:
     direction="left")
 
     .panel-items
-      .panel-item
+      .panel-item(v-if="vizDetails.title")
         h3 {{ vizDetails.title }}
         p {{ vizDetails.description }}
 
@@ -33,7 +28,7 @@ de:
             :key="route.uniqueRouteID"
             :class="{highlightedRoute: selectedRoute && route.id === selectedRoute.id}"
             @click="showRouteDetails(route.id)")
-          h3.mytitle {{route.id}}
+          .route-title {{route.id}}
           .detailed-route-data
             .col
               p: b {{route.departures}} departures
@@ -43,16 +38,17 @@ de:
               p: b {{ route.passengersAtArrival }} passengers
               p {{ route.totalVehicleCapacity }} capacity
 
-  collapsible-panel.right-side(v-if="!thumbnail" :darkMode="isDarkMode" :width="300" direction="right")
+  .control-panel(v-if="!thumbnail"
+    :class="{'is-dashboard': config !== undefined }"
+  )
+
     .panel-item
-      h3 {{  $t('metrics') }}:
+      p.control-label {{  $t('metrics') }}:
       .metric-buttons
         button.button.is-small.metric-button(
           v-for="metric,i in metrics" :key="metric.field"
           :style="{'color': activeMetric===metric.field ? 'white' : buttonColors[i], 'border': `1px solid ${buttonColors[i]}`, 'border-right': `0.4rem solid ${buttonColors[i]}`,'border-radius': '4px', 'background-color': activeMetric===metric.field ? buttonColors[i] : isDarkMode ? '#333':'white'}"
           @click="handleClickedMetric(metric)") {{ $i18n.locale === 'de' ? metric.name_de : metric.name_en }}
-
-    legend-box(:rows="legendRows")
 
   .status-corner(v-if="!thumbnail && loadingText")
     p {{ loadingText }}
@@ -60,8 +56,14 @@ de:
 </template>
 
 <script lang="ts">
-'use strict'
+const i18n = {
+  messages: {
+    en: { metrics: 'Metrics', viewer: 'Transit Network' },
+    de: { metrics: 'Metrics', viewer: 'ÖV Netzwerk' },
+  },
+}
 
+import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
 import * as turf from '@turf/turf'
 import colormap from 'colormap'
 import crossfilter from 'crossfilter2'
@@ -69,16 +71,17 @@ import maplibregl, { GeoJSONSource, LngLatBoundsLike, LngLatLike, Popup } from '
 import nprogress from 'nprogress'
 import Papaparse from 'papaparse'
 import yaml from 'yaml'
-import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
 
+import globalStore from '@/store'
 import CollapsiblePanel from '@/components/CollapsiblePanel.vue'
+import HTTPFileSystem from '@/js/HTTPFileSystem'
 import LeftDataPanel from '@/components/LeftDataPanel.vue'
-
 import { Network, NetworkInputs, NetworkNode, TransitLine, RouteDetails } from './Interfaces'
-import XmlFetcher from '@/workers/XmlFetcher'
-import TransitSupplyHelper from './TransitSupplyHelper'
+import NewXmlFetcher from '@/workers/NewXmlFetcher.worker?worker'
+import TransitSupplyWorker from './TransitSupplyHelper.worker?worker'
 import LegendBox from './LegendBox.vue'
 import DrawingTool from '@/components/DrawingTool/DrawingTool.vue'
+import ZoomButtons from '@/components/ZoomButtons.vue'
 
 import {
   FileSystem,
@@ -87,10 +90,8 @@ import {
   VisualizationPlugin,
   MAP_STYLES,
 } from '@/Globals'
-import HTTPFileSystem from '@/js/HTTPFileSystem'
-import globalStore from '@/store'
 
-import GzipWorker from '@/workers/GzipFetcher.worker'
+import GzipWorker from '@/workers/GzipFetcher.worker?worker'
 
 const DEFAULT_PROJECTION = 'EPSG:31468' // 31468' // 2048'
 
@@ -102,7 +103,10 @@ class Departure {
   public routes: Set<string> = new Set()
 }
 
-@Component({ components: { CollapsiblePanel, LeftDataPanel, LegendBox, DrawingTool } })
+@Component({
+  i18n,
+  components: { CollapsiblePanel, LeftDataPanel, LegendBox, DrawingTool, ZoomButtons },
+})
 class MyComponent extends Vue {
   @Prop({ required: true })
   private root!: string
@@ -115,6 +119,9 @@ class MyComponent extends Vue {
 
   @Prop({ required: false })
   private yamlConfig!: string
+
+  @Prop({ required: false })
+  private config!: any
 
   @Prop({ required: false })
   private thumbnail!: boolean
@@ -140,9 +147,9 @@ class MyComponent extends Vue {
   private myState = {
     fileApi: this.fileApi,
     fileSystem: undefined as FileSystemConfig | undefined,
-    subfolder: this.subfolder,
-    yamlConfig: this.yamlConfig,
-    thumbnail: this.thumbnail,
+    subfolder: '',
+    yamlConfig: '',
+    thumbnail: true,
   }
 
   private isDarkMode = this.$store.state.colorScheme === ColorScheme.DarkMode
@@ -165,9 +172,9 @@ class MyComponent extends Vue {
   private _routeData!: { [index: string]: RouteDetails }
   private _stopFacilities!: { [index: string]: NetworkNode }
   private _transitLines!: { [index: string]: TransitLine }
-  private _roadFetcher!: XmlFetcher
-  private _transitFetcher!: XmlFetcher
-  private _transitHelper!: TransitSupplyHelper
+  private _roadFetcher!: any
+  private _transitFetcher!: any
+  private _transitHelper?: any
 
   public created() {
     this._attachedRouteLayers = []
@@ -179,6 +186,24 @@ class MyComponent extends Vue {
     this._stopFacilities = {}
     this._transitLines = {}
     this.selectedRoute = null
+  }
+
+  public async mounted() {
+    this.$store.commit('setFullScreen', !this.thumbnail)
+
+    // populate props after we attach, not before!
+    this.myState.subfolder = this.subfolder
+    this.myState.yamlConfig = this.yamlConfig
+    this.myState.thumbnail = this.thumbnail
+
+    if (!this.fileApi) this.buildFileApi()
+
+    await this.getVizDetails()
+    this.projection = this.vizDetails.projection
+
+    if (this.thumbnail) return
+
+    this.setupMap()
   }
 
   public destroyed() {
@@ -237,27 +262,16 @@ class MyComponent extends Vue {
   }
 
   public beforeDestroy() {
+    if (this.xmlWorker) this.xmlWorker.terminate()
     if (this._roadFetcher) this._roadFetcher.destroy()
     if (this._transitFetcher) this._transitFetcher.destroy()
-    if (this._transitHelper) this._transitHelper.destroy()
+    if (this._transitHelper) this._transitHelper.terminate()
   }
 
   public buildFileApi() {
     const filesystem = this.getFileSystem(this.root)
     this.myState.fileApi = new HTTPFileSystem(filesystem)
     this.myState.fileSystem = filesystem
-  }
-
-  public async mounted() {
-    this.$store.commit('setFullScreen', !this.thumbnail)
-
-    if (!this.fileApi) this.buildFileApi()
-
-    await this.getVizDetails()
-
-    if (this.thumbnail) return
-
-    this.setupMap()
   }
 
   private getFileSystem(name: string) {
@@ -273,8 +287,14 @@ class MyComponent extends Vue {
   }
 
   private async getVizDetails() {
+    // are we in a dashboard?
+    if (this.config) {
+      this.vizDetails = Object.assign({}, this.config)
+      return
+    }
+
     // if a YAML file was passed in, just use it
-    if (this.myState.yamlConfig.endsWith('yaml') || this.myState.yamlConfig.endsWith('yml')) {
+    if (this.myState.yamlConfig?.endsWith('yaml') || this.myState.yamlConfig?.endsWith('yml')) {
       this.loadYamlConfig()
       return
     }
@@ -305,7 +325,7 @@ class MyComponent extends Vue {
 
       // if the obvious network file doesn't exist, just grab... the first network file:
       if (files.indexOf(network) == -1) {
-        const allNetworks = files.filter(f => f.endsWith('network.xml.gz'))
+        const allNetworks = files.filter((f) => f.endsWith('network.xml.gz'))
         if (allNetworks.length) network = allNetworks[0]
         else {
           this.loadingText = 'No road network found.'
@@ -316,7 +336,7 @@ class MyComponent extends Vue {
       // Departures: use them if we are in an output folder (and they exist)
       let demandFiles = [] as string[]
       if (this.myState.yamlConfig.indexOf('output_transitSchedule') > -1) {
-        demandFiles = files.filter(f => f.endsWith('pt_stop2stop_departures.csv.gz'))
+        demandFiles = files.filter((f) => f.endsWith('pt_stop2stop_departures.csv.gz'))
       }
 
       // Coordinates:
@@ -326,20 +346,29 @@ class MyComponent extends Vue {
       // Save everything
       this.vizDetails.network = network
       this.vizDetails.projection = projection
-      this.projection = this.vizDetails.projection
       if (demandFiles.length) this.vizDetails.demand = demandFiles[0]
     }
   }
 
-  private async guessProjection(files: string[]) {
+  private async guessProjection(files: string[]): Promise<string> {
+    // 0. If it's in config, use it
+    if (this.config?.projection) return this.config.projection
+
     // 1. if we have it in storage already, use it
-    let savedConfig = localStorage.getItem(this.myState.yamlConfig) as any
+    const storagePath = `${this.root}/${this.subfolder}`
+    let savedConfig = localStorage.getItem(storagePath) as any
+
+    const goodEPSG = /EPSG:.\d/
 
     if (savedConfig) {
       try {
-        const { projection } = JSON.parse(savedConfig)
-        if (projection) return projection
-        else savedConfig = {}
+        const config = JSON.parse(savedConfig)
+
+        if (goodEPSG.test(config.networkProjection)) {
+          return config.networkProjection
+        } else {
+          savedConfig = {}
+        }
       } catch (e) {
         console.error('bad saved config in storage', savedConfig)
         savedConfig = {}
@@ -348,50 +377,66 @@ class MyComponent extends Vue {
     }
 
     // 2. try to get it from config
-    const outputConfigs = files.filter(f => f.indexOf('output_config.xml') > -1)
+    const outputConfigs = files.filter(
+      (f) => f.indexOf('.output_config.xml') > -1 || f.indexOf('.output_config_reduced.xml') > -1
+    )
     if (outputConfigs.length && this.myState.fileSystem) {
       console.log('trying to find CRS in', outputConfigs[0])
-      const fetcher = await XmlFetcher.create({
-        fileApi: this.myState.fileSystem.slug,
-        filePath: this.myState.subfolder + '/' + outputConfigs[0],
-      })
-      const results = (await fetcher.fetchXML()) as any
-      fetcher.destroy()
 
-      try {
-        const global = results.config.module.filter((f: any) => f.$.name === 'global')[0]
-        const crs = global.param.filter((p: any) => p.$.name === 'coordinateSystem')[0]
-        const crsValue = crs.$.value
+      for (const xmlConfigFileName of outputConfigs) {
+        try {
+          const configXML: any = await this.fetchXML({
+            fileApi: this.myState.fileSystem.slug,
+            filePath: this.myState.subfolder + '/' + xmlConfigFileName,
+          })
 
-        // save it
-        savedConfig = savedConfig || {}
-        savedConfig.projection = crsValue
-        const outputSettings = JSON.stringify(savedConfig)
-        localStorage.setItem(this.myState.yamlConfig, outputSettings)
-        return crsValue
-      } catch (e) {
-        console.error('Failed parsing output config XML')
+          const global = configXML.config.module.filter((f: any) => f.$name === 'global')[0]
+          const crs = global.param.filter((p: any) => p.$name === 'coordinateSystem')[0]
+
+          const crsValue = crs.$value
+
+          // save it
+          savedConfig = savedConfig || {}
+          savedConfig.networkProjection = crsValue
+          localStorage.setItem(storagePath, JSON.stringify(savedConfig))
+          return crsValue
+        } catch (e) {
+          console.warn('Failed parsing', xmlConfigFileName)
+        }
       }
     }
 
     // 3. ask the user
-    const entry = prompt('Need EPSG number:', '')
-    const projection = `EPSG:${entry}`
-    const outputSettings = JSON.stringify({ projection })
-    localStorage.setItem(this.myState.yamlConfig, outputSettings)
-    return projection
+    let entry = prompt('Need coordinate EPSG number:', '') || ''
+
+    // if user cancelled, give up
+    if (!entry) return ''
+    // if user gave bad answer, try again
+    if (isNaN(parseInt(entry, 10)) && !goodEPSG.test(entry)) return this.guessProjection(files)
+
+    // hopefully user gave a good EPSG number
+    if (!entry.startsWith('EPSG:')) entry = 'EPSG:' + entry
+
+    const networkProjection = entry
+    localStorage.setItem(storagePath, JSON.stringify({ networkProjection }))
+    return networkProjection
   }
 
   private async loadYamlConfig() {
     // first get config
     try {
-      const text = await this.myState.fileApi.getFileText(
-        this.myState.subfolder + '/' + this.myState.yamlConfig
-      )
+      // might be a project config:
+      const filename =
+        this.myState.yamlConfig.indexOf('/') > -1
+          ? this.myState.yamlConfig
+          : this.myState.subfolder + '/' + this.myState.yamlConfig
+
+      const text = await this.myState.fileApi.getFileText(filename)
       this.vizDetails = yaml.parse(text)
     } catch (e) {
       // maybe it failed because password?
-      if (this.myState.fileSystem && this.myState.fileSystem.needPassword && e.status === 401) {
+      const err = e as any
+      if (this.myState.fileSystem && this.myState.fileSystem.needPassword && err.status === 401) {
         this.$store.commit('requestLogin', this.myState.fileSystem.slug)
       }
     }
@@ -456,8 +501,6 @@ class MyComponent extends Vue {
     this.mymap.on('click', this.handleEmptyClick)
 
     this.mymap.keyboard.disable() // so arrow keys don't pan
-
-    this.mymap.addControl(new maplibregl.NavigationControl(), 'top-right')
   }
 
   private handleClickedMetric(metric: { field: string }) {
@@ -519,6 +562,7 @@ class MyComponent extends Vue {
 
   private async mapIsReady() {
     const networks = await this.loadNetworks()
+    console.log({ networks })
     if (networks) this.processInputs(networks)
 
     this.setupKeyListeners()
@@ -526,13 +570,13 @@ class MyComponent extends Vue {
 
   private setupKeyListeners() {
     // const parent = this
-    window.addEventListener('keyup', event => {
+    window.addEventListener('keyup', (event) => {
       if (event.keyCode === 27) {
         // ESC
         this.pressedEscape()
       }
     })
-    window.addEventListener('keydown', event => {
+    window.addEventListener('keydown', (event) => {
       if (event.keyCode === 38) {
         this.pressedArrowKey(-1) // UP
       }
@@ -542,6 +586,32 @@ class MyComponent extends Vue {
     })
   }
 
+  private resolvers: { [id: number]: any } = {}
+  private resolverId = 0
+  private xmlWorker?: Worker
+
+  private fetchXML(props: { fileApi: string; filePath: string; options?: any }) {
+    if (!this.xmlWorker) {
+      this.xmlWorker = new NewXmlFetcher()
+      this.xmlWorker.onmessage = (message: MessageEvent) => {
+        // message.data will have .id and either .error or .xml
+        const { resolve, reject } = this.resolvers[message.data.id]
+        if (message.data.error) reject(message.data.error)
+        resolve(message.data.xml)
+      }
+    }
+
+    // save the promise by id so we can look it up when we get messages
+    const id = this.resolverId++
+
+    this.xmlWorker.postMessage(Object.assign({ id }, props))
+
+    const promise = new Promise((resolve, reject) => {
+      this.resolvers[id] = { resolve, reject }
+    })
+    return promise
+  }
+
   private async loadNetworks() {
     try {
       if (!this.myState.fileSystem || !this.vizDetails.network || !this.vizDetails.transitSchedule)
@@ -549,24 +619,27 @@ class MyComponent extends Vue {
 
       this.loadingText = 'Loading networks...'
 
-      this._roadFetcher = await XmlFetcher.create({
+      // this._xmlWorkers.push(worker) // save it so we can terminate if we have to
+
+      const roads = this.fetchXML({
         fileApi: this.myState.fileSystem.slug,
         filePath: this.myState.subfolder + '/' + this.vizDetails.network,
+        options: { attributeNamePrefix: '' },
       })
-      this._transitFetcher = await XmlFetcher.create({
+      const transit = this.fetchXML({
         fileApi: this.myState.fileSystem.slug,
         filePath: this.myState.subfolder + '/' + this.vizDetails.transitSchedule,
+        options: {
+          attributeNamePrefix: '',
+          alwaysArray: [
+            'transitSchedule.transitLine.transitRoute',
+            'transitSchedule.transitLine.transitRoute.departures.departure',
+          ],
+        },
       })
 
-      // launch the long-running processes; these return promises
-      const roadXMLPromise = this._roadFetcher.fetchXML()
-      const transitXMLPromise = this._transitFetcher.fetchXML()
-
       // and wait for them to both complete
-      const results = await Promise.all([roadXMLPromise, transitXMLPromise])
-
-      this._roadFetcher.destroy()
-      this._transitFetcher.destroy()
+      const results = await Promise.all([roads, transit])
 
       const ridership = this.loadDemandData(this.vizDetails.demand)
       return { roadXML: results[0], transitXML: results[1], ridership }
@@ -595,7 +668,7 @@ class MyComponent extends Vue {
         skipEmptyLines: true,
         dynamicTyping: true,
         worker: true,
-        complete: results => {
+        complete: (results) => {
           this.processDemand(results)
         },
       })
@@ -627,7 +700,7 @@ class MyComponent extends Vue {
     group
       .reduceSum((d: any) => d.passengersAtArrival)
       .all()
-      .map(link => {
+      .map((link) => {
         linkPassengersById[link.key as any] = link.value
       })
 
@@ -636,7 +709,7 @@ class MyComponent extends Vue {
     group
       .reduceSum((d: any) => d.totalVehicleCapacity)
       .all()
-      .map(link => {
+      .map((link) => {
         capacity[link.key as any] = link.value
       })
 
@@ -665,34 +738,31 @@ class MyComponent extends Vue {
   private async processInputs(networks: NetworkInputs) {
     this.loadingText = 'Preparing...'
     // spawn transit helper web worker
-    this._transitHelper = await TransitSupplyHelper.create({
+    this._transitHelper = new TransitSupplyWorker()
+
+    this._transitHelper.onmessage = async (buffer: MessageEvent) => {
+      this.receivedProcessedTransit(buffer)
+    }
+
+    this._transitHelper.postMessage({
       xml: networks,
       projection: this.projection,
     })
+  }
 
-    this.loadingText = 'Crunching road network...'
-    await this._transitHelper.createNodesAndLinks()
-
-    this.loadingText = 'Converting coordinates...'
-    await this._transitHelper.convertCoordinates()
-
-    this.loadingText = 'Crunching transit network...'
-
-    const {
-      network,
-      routeData,
-      stopFacilities,
-      transitLines,
-      mapExtent,
-    }: any = await this._transitHelper.processTransit()
-
+  private async receivedProcessedTransit(buffer: MessageEvent) {
+    if (buffer.data.status) {
+      this.loadingText = buffer.data.status
+      return
+    }
+    const { network, routeData, stopFacilities, transitLines, mapExtent } = buffer.data
     this._network = network
     this._routeData = routeData
     this._stopFacilities = stopFacilities
     this._transitLines = transitLines
     this._mapExtentXYXY = mapExtent
 
-    // await this.addLinksToMap() // --no links for now
+    this._transitHelper.terminate()
 
     this.loadingText = 'Summarizing departures...'
     await this.processDepartures()
@@ -793,10 +863,7 @@ class MyComponent extends Vue {
     }
 
     content += '<div>'
-    this.mapPopup
-      .setLngLat(event.lngLat)
-      .setHTML(content)
-      .addTo(this.mymap)
+    this.mapPopup.setLngLat(event.lngLat).setHTML(content).addTo(this.mymap)
   }
 
   private async constructDepartureFrequencyGeoJson() {
@@ -848,7 +915,7 @@ class MyComponent extends Vue {
       }
     }
 
-    geojson.sort(function(a: any, b: any) {
+    geojson.sort(function (a: any, b: any) {
       if (a.isRail && !b.isRail) return -1
       if (b.isRail && !a.isRail) return 1
       return 0
@@ -955,7 +1022,7 @@ class MyComponent extends Vue {
     }
 
     // sort by highest departures first
-    routes.sort(function(a, b) {
+    routes.sort(function (a, b) {
       return a.departures > b.departures ? -1 : 1
     })
 
@@ -974,7 +1041,7 @@ class MyComponent extends Vue {
     const allLinks = this.cfDemand.allFiltered()
     let sum = 0
 
-    allLinks.map(d => {
+    allLinks.map((d) => {
       sum = sum + d.passengersBoarding + d.passengersAtArrival - d.passengersAlighting
     })
 
@@ -1049,16 +1116,6 @@ globalStore.commit('registerPlugin', {
 export default MyComponent
 
 const _colorScale = colormap({ colormap: 'viridis', nshades: COLOR_CATEGORIES })
-
-const nodeReadAsync = function(filename: string) {
-  const fs = require('fs')
-  return new Promise((resolve, reject) => {
-    fs.readFile(filename, 'utf8', (err: Error, data: string) => {
-      if (err) reject(err)
-      else resolve(data)
-    })
-  })
-}
 </script>
 
 <style scoped lang="scss">
@@ -1083,34 +1140,64 @@ p {
 }
 
 .transit-viz {
-  display: grid;
-  pointer-events: none;
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   min-height: $thumbnailHeight;
   background: url('assets/thumbnail.jpg') no-repeat;
   background-size: cover;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: auto 1fr auto;
-  grid-template-areas:
-    'title      rightside'
-    'leftside   rightside'
-    'playback   clock';
+  pointer-events: none;
 }
 
 .map-container {
+  position: relative;
+  flex: 1;
   pointer-events: auto;
   background: url('assets/thumbnail.jpg') no-repeat;
   background-color: #eee;
   background-size: cover;
-  grid-column: 1 / 3;
-  grid-row: 1 / 4;
-  display: flex;
-  flex-direction: column;
   min-height: $thumbnailHeight;
 }
 
 .hide-thumbnail {
   background: none;
-  background-color: var(--bgBold);
+  z-index: 0;
+}
+
+.control-panel {
+  position: absolute;
+  bottom: 0;
+  display: flex;
+  flex-direction: row;
+  font-size: 0.8rem;
+  margin: 0 0 0.5rem 0.5rem;
+  pointer-events: auto;
+  background-color: var(--bgPanel);
+  padding: 0.5rem 0.5rem;
+  filter: drop-shadow(0px 2px 4px #22222233);
+}
+
+.is-dashboard {
+  position: static;
+  margin: 0 0;
+  padding: 0.25rem 0 0 0;
+  filter: unset;
+  background-color: unset;
+}
+
+.legend {
+  background-color: var(--bgPanel);
+  padding: 0.25rem 0.5rem;
+  position: absolute;
+  bottom: 3.5rem;
+  right: 0.5rem;
+}
+
+.control-label {
+  margin: 0 0;
+  font-size: 0.8rem;
+  font-weight: bold;
 }
 
 .route {
@@ -1132,7 +1219,10 @@ h3 {
   line-height: 1.7rem;
 }
 
-.mytitle {
+.route-title {
+  font-size: 1rem;
+  font-weight: bold;
+  line-height: 1.2rem;
   margin-left: 10px;
   color: var(--link);
 }
@@ -1207,24 +1297,24 @@ h3 {
 }
 
 .left-side {
-  grid-column: 1 / 3;
-  grid-row: 1 / 4;
+  position: absolute;
+  top: 0;
+  left: 0;
   margin-bottom: auto;
   margin-right: auto;
   display: flex;
-  z-index: 5;
   flex-direction: row;
   pointer-events: auto;
-  max-height: 50%;
-  max-width: 50%;
+  max-height: 40%;
+  max-width: 80%;
+  opacity: 0.96;
 }
 
 .right-side {
-  z-index: 5;
+  z-index: 1;
   position: absolute;
-  bottom: 0;
+  bottom: 3.75rem;
   right: 0;
-  margin: 0 0 0 0;
   color: white;
   display: flex;
   flex-direction: row;
@@ -1237,19 +1327,14 @@ h3 {
   flex-direction: column;
   margin: 0 0;
   max-height: 100%;
-  h3 {
-    padding: 0 0.5rem;
-  }
 }
 
 .panel-item {
-  color: var(--text);
-  padding: 0 0.5rem;
-  margin-top: 0.25rem;
-  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
 
-  h1 {
-    font-size: 2rem;
+  h3 {
+    padding: 0.5rem 1rem 1.5rem 0.5rem;
   }
 }
 
@@ -1275,11 +1360,11 @@ h3 {
 
 .metric-buttons {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
 }
 
 .metric-button {
-  margin-bottom: 0.25rem;
+  margin-right: 0.5rem;
 }
 
 .detailed-route-data {
@@ -1292,14 +1377,17 @@ h3 {
   flex-direction: column;
 }
 
+.map-styles {
+  height: 100%;
+}
+
 .status-corner {
-  z-index: 5;
-  grid-column: 1 / 3;
-  grid-row: 1 / 3;
-  // box-shadow: 0px 2px 10px #22222266;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 15;
   display: flex;
   flex-direction: row;
-  margin: auto auto 0 0;
   background-color: var(--bgPanel);
   padding: 0rem 3rem;
 

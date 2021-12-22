@@ -1,115 +1,204 @@
 <template lang="pug">
-vue-plotly(:data="data" :layout="layout" :options="options" :config="{responsive: true}" :class="className")
+VuePlotly.myplot(
+  :data="data"
+  :layout="layout"
+  :options="options"
+  :id="id"
+  :class="className"
+)
+  //- @click="handlePlotlyClick"
 
 </template>
 
 <script lang="ts">
 import { Vue, Component, Watch, Prop } from 'vue-property-decorator'
-import { Worker, spawn, Thread } from 'threads'
-import VuePlotly from '@statnett/vue-plotly'
 
 import { FileSystemConfig, UI_FONT } from '@/Globals'
+import DashboardDataManager from '@/js/DashboardDataManager'
+import VuePlotly from '@/components/VuePlotly.vue'
+import { buildCleanTitle } from '@/charts/allCharts'
 
-const mockData = {
-  car: 34,
-  bike: 18,
-  pt: 30,
-  walk: 8,
-}
+import globalStore from '@/store'
 
 @Component({ components: { VuePlotly } })
 export default class VueComponent extends Vue {
-  @Prop({ required: true }) fileSystemConfig!: FileSystemConfig
-  @Prop({ required: true }) subfolder!: string
-  @Prop({ required: true }) files!: string[]
-  @Prop({ required: true }) config!: any
+  @Prop() fileSystemConfig!: FileSystemConfig
+  @Prop() subfolder!: string
+  @Prop() config!: any
+  @Prop() files!: string[]
+  @Prop() datamanager!: DashboardDataManager
+  @Prop() cardId!: string
+  @Prop({ required: true }) cardTitle!: string
 
-  private globalState = this.$store.state
+  private globalState = globalStore.state
 
-  private thread!: any
-  private dataRows: any = {}
-
+  private id = 'bar-' + Math.random()
   private plotID = this.getRandomInt(100000)
 
+  private className = ''
+
+  // dataSet is either x,y or allRows[]
+  private dataSet: { x?: any[]; y?: any[]; allRows?: any[] } = {}
+
   private async mounted() {
+    this.updateLayout()
     this.updateTheme()
-    await this.loadData()
-    this.resizePlot()
-    window.addEventListener('resize', this.myEventHandler)
+    this.dataSet = await this.loadData()
+    this.updateChart()
+
+    this.options.toImageButtonOptions.filename = buildCleanTitle(this.cardTitle, this.subfolder)
+
+    this.$emit('dimension-resizer', { id: this.cardId, resizer: this.changeDimensions })
     this.$emit('isLoaded')
   }
 
-  private async beforeDestroy() {
-    window.removeEventListener('resize', this.myEventHandler)
+  private changeDimensions(dimensions: { width: number; height: number }) {
+    this.layout = Object.assign({}, this.layout, dimensions)
   }
 
-  @Watch('globalState.isDarkMode') updateTheme() {
-    this.layout.paper_bgcolor = this.globalState.isDarkMode ? '#282c34' : '#fff' // #f8f8ff
-    this.layout.plot_bgcolor = this.globalState.isDarkMode ? '#282c34' : '#fff'
-    this.layout.font.color = this.globalState.isDarkMode ? '#cccccc' : '#444444'
-  }
-
-  private async loadData() {
-    if (!this.files.length) return
-
-    if (this.thread) Thread.terminate(this.thread)
-    this.thread = await spawn(new Worker('../workers/DataFetcher.thread'))
-
+  private beforeDestroy() {
     try {
-      const data = await this.thread.fetchData({
-        fileSystemConfig: this.fileSystemConfig,
-        subfolder: this.subfolder,
-        files: this.files,
-        config: this.config,
-      })
+      this.datamanager.removeFilterListener(this.config, this.handleFilterChanged)
+    } catch (e) {}
+  }
 
-      this.dataRows = data
-      this.updateChart()
+  @Watch('globalState.isDarkMode')
+  updateTheme() {
+    const colors = {
+      paper_bgcolor: this.globalState.isDarkMode ? '#282c34' : '#fff',
+      plot_bgcolor: this.globalState.isDarkMode ? '#282c34' : '#fff',
+      font: { color: this.globalState.isDarkMode ? '#cccccc' : '#444444' },
+    }
+    this.layout = Object.assign({}, this.layout, colors)
+  }
+
+  private updateLayout() {
+    this.layout.xaxis.title = this.config.xAxisTitle || this.config.xAxisName || ''
+    this.layout.yaxis.title = this.config.yAxisTitle || this.config.yAxisName || ''
+  }
+
+  private async handlePlotlyClick(click: any) {
+    try {
+      const { x, y, data } = click.points[0]
+
+      const filter = this.config.groupBy
+      const value = x
+
+      this.datamanager.setFilter(this.config.dataset, filter, value)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  private async handleFilterChanged() {
+    try {
+      const { filteredRows } = await this.datamanager.getFilteredDataset(this.config)
+
+      // is filter UN-selected?
+      if (!filteredRows) {
+        this.data = [this.data[0]]
+        this.data[0].opacity = 1.0
+        return
+      }
+
+      const fullDataCopy = Object.assign({}, this.data[0])
+
+      fullDataCopy.x = filteredRows.x
+      fullDataCopy.y = filteredRows.y
+      fullDataCopy.opacity = 1.0
+      fullDataCopy.name = 'Filtered'
+      //@ts-ignore - let plotly manage bar colors EXCEPT the filter
+      fullDataCopy.marker = { color: '#ffaf00' } // 3c6' }
+
+      this.data = [this.data[0], fullDataCopy]
+      this.data[0].opacity = 0.3
+      this.data[0].name = 'All'
     } catch (e) {
       const message = '' + e
       console.log(message)
-      this.dataRows = {}
-    } finally {
-      Thread.terminate(this.thread)
+      this.dataSet = {}
     }
+  }
+
+  private async loadData() {
+    if (!this.files.length) return {}
+
+    try {
+      const allRows = await this.datamanager.getDataset(this.config)
+      // this.datamanager.addFilterListener(this.config, this.handleFilterChanged)
+
+      return allRows
+    } catch (e) {
+      const message = '' + e
+      console.log(message)
+    }
+    return {}
   }
 
   private getRandomInt(max: number) {
     return Math.floor(Math.random() * max).toString()
   }
 
-  // The myEventHandler was added because Plottly has a bug with resizing.
-  private myEventHandler() {
-    this.resizePlot()
-  }
-
-  private resizePlot() {
-    var plotElement = document.getElementsByClassName('dash-row')
-    for (var i = 0; i < plotElement.length; i++) {
-      var childElement = plotElement[i].firstChild?.lastChild?.firstChild as Element
-      var name = childElement.className
-      if (name.includes(this.plotID)) {
-        this.layout.width = plotElement[i].clientWidth - this.rem2px(3)
-      }
-    }
-  }
-
+  private remFactor = 0
   private rem2px(rem: number) {
-    var el = document.createElement('div')
-    document.body.appendChild(el)
-    el.style.width = '1000rem'
-    var factor = el.clientWidth / 1000
-    document.body.removeChild(el)
-    return rem * factor
+    // only calculate the factor one time
+    if (!this.remFactor) {
+      var el = document.createElement('div')
+      document.body.appendChild(el)
+      el.style.width = '1000rem'
+      var factor = el.clientWidth / 1000
+      document.body.removeChild(el)
+    }
+    return rem * this.remFactor
   }
 
   private updateChart() {
+    if (this.config.groupBy) this.updateChartWithGroupBy()
+    else this.updateChartSimple()
+  }
+
+  private updateChartWithGroupBy() {
+    this.className = this.plotID // stacked bug-fix hack
+
+    // TODO: re-implement grouping
+
+    // const { x, y } = this.dataRows
+
+    // this.data = [
+    //   {
+    //     x,
+    //     y,
+    //     name: this.config.groupBy,
+    //     type: 'bar',
+    //     textinfo: 'label+percent',
+    //     textposition: 'inside',
+    //     automargin: true,
+    //     opacity: 1.0,
+    //   },
+    // ]
+  }
+
+  private updateChartSimple() {
     const x = []
 
     var useOwnNames = false
 
+    const allRows = this.dataSet.allRows || []
+
+    // old configs called it "usedCol" --> now "columns"
+    let columns = this.config.columns || this.config.usedCol
+
+    // Or maybe user didn't specify: then use all the columns!
+    if (!columns && allRows.length)
+      columns = Object.keys(allRows[0])
+        .filter((col) => col !== this.config.x)
+        .sort((a: any, b: any) => (allRows[0][a] > allRows[0][b] ? -1 : 1))
+
+    // old legendname field
+    if (this.config.legendName) this.config.legendTitles = this.config.legendName
+
     if (this.config.legendTitles !== undefined) {
-      if (this.config.legendTitles.length === this.config.columns.length) {
+      if (this.config.legendTitles.length === columns.length) {
         useOwnNames = true
       }
     }
@@ -117,29 +206,47 @@ export default class VueComponent extends Vue {
     if (this.config.stacked) this.layout.barmode = 'stack'
     if (this.config.stacked) this.className = this.plotID
 
-    for (var i = 0; i < this.dataRows.length; i++) {
+    for (var i = 0; i < allRows.length; i++) {
       if (i == 0 && this.config.skipFirstRow) {
       } else {
-        x.push(this.dataRows[i][this.config.x])
+        x.push(allRows[i][this.config.x])
       }
     }
 
-    for (let i = 0; i < this.config.columns.length; i++) {
-      const name = this.config.columns[i]
+    for (let i = 0; i < columns.length; i++) {
+      const name = columns[i]
       let legendName = ''
-      if (this.config.columns[i] !== 'undefined') {
+      if (columns[i] !== 'undefined') {
         if (useOwnNames) {
           legendName = this.config.legendTitles[i]
         } else {
           legendName = name
         }
-        const value = []
-        for (var j = 0; j < this.dataRows.length; j++) {
+        let value = []
+        for (var j = 0; j < allRows.length; j++) {
           if (j == 0 && this.config.skipFirstRow) {
           } else {
-            value.push(this.dataRows[j][name])
+            value.push(allRows[j][name])
           }
         }
+
+        // are durations in 00:00:00 format?
+        if (this.config.convertToSeconds) {
+          value = value.map((v: string) => {
+            try {
+              const pieces = v.split(':')
+              // console.log(pieces)
+              const seconds = pieces.reduce(
+                (prev: any, curr: any) => parseInt(curr, 10) + prev * 60,
+                0
+              )
+              return seconds
+            } catch (e) {
+              return 0
+            }
+          })
+        }
+
         this.data.push({
           x: x,
           y: value,
@@ -148,54 +255,43 @@ export default class VueComponent extends Vue {
           textinfo: 'label+percent',
           textposition: 'inside',
           automargin: true,
+          opacity: 1.0,
         })
       }
     }
   }
 
-  private className = ''
-
   private layout: any = {
     height: 300,
-    width: 0,
     margin: { t: 30, b: 50, l: 60, r: 20 },
     //legend: { orientation: 'h' }, // , yanchor: 'bottom', y: -0.4 },
     font: {
       color: '#444444',
       family: UI_FONT,
     },
-    barmode: '',
+    barmode: 'overlay',
     bargap: 0.08,
     xaxis: {
       autorange: true,
-      title: this.config.xAxisTitle,
+      title: '',
     },
     yaxis: {
       autorange: true,
-      title: this.config.yAxisTitle,
+      title: '',
     },
     legend: {
-      x: 1,
-      xanchor: 'right',
-      y: 1,
+      // x: 0.5,
+      // xanchor: 'right',
+      // y: 0,
+      orientation: 'h',
     },
   }
 
-  private data = [
-    {
-      x: [] as any[],
-      y: [] as any[],
-      name: '',
-      type: 'bar',
-      textinfo: 'label+percent',
-      textposition: 'inside',
-      automargin: true,
-    },
-  ]
+  private data = [] as any[]
 
   private options = {
-    displaylogo: false,
     responsive: true,
+    displaylogo: false,
     modeBarButtonsToRemove: [
       'pan2d',
       'zoom2d',
@@ -212,7 +308,7 @@ export default class VueComponent extends Vue {
     ],
     toImageButtonOptions: {
       format: 'png', // one of png, svg, jpeg, webp
-      filename: 'plot',
+      filename: 'bar-chart',
       width: 1200,
       height: 800,
       scale: 1.0, // Multiply title/legend/axis/canvas sizes by this factor
@@ -223,6 +319,14 @@ export default class VueComponent extends Vue {
 
 <style scoped lang="scss">
 @import '@/styles.scss';
+
+.myplot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
 
 @media only screen and (max-width: 640px) {
 }
