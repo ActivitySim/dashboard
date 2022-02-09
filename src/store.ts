@@ -7,7 +7,6 @@ import { BreadCrumb, ColorScheme, FileSystemConfig, Status, VisualizationPlugin 
 import fileSystems from '@/fileSystemConfig'
 import { MAP_STYLES_ONLINE, MAP_STYLES_OFFLINE } from '@/Globals'
 import { debounce } from '@/js/util'
-import SVNFileSystem from './js/HTTPFileSystem'
 
 // ----------------------------------------
 
@@ -23,9 +22,9 @@ const initialViewState = () => ({
   // longitude: 13.45,
   // latitude: 52.5,
   // zoom: 8,
-  longitude: 10,
-  latitude: 50,
-  zoom: 9,
+  longitude: -96,
+  latitude: 38,
+  zoom: 7,
 })
 
 interface GlobalState {

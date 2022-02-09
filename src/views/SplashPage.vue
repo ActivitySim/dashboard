@@ -4,28 +4,38 @@
     .content
       .main
 
-        .simwrapper-logo
-          img(v-if="state.isDarkMode" src="@/assets/simwrapper-logo/SW_logo_yellow.png")
-          img(v-else src="@/assets/simwrapper-logo/SW_logo_yellow.png")
-
-        h2.splash-readme(style="text-align: center; margin: -0.5rem auto 0 auto" v-html="$t('tagLine')")
+        h1 ActivitySim/Wrapper
+        h2.splash-readme(style="max-width: 42rem; text-align: center; margin: -0.5rem auto 0 auto" v-html="$t('tagLine')")
+        //- img(src="@/assets/images/simwrapper-scrnshot-wide.jpg")
 
         hr
-        h2: b Explore model results:
+        h2: b Explore model results
         file-system-projects.gap(@navigate="onNavigate")
         hr
 
         h2: b {{ $t('more-info') }}
         info-bottom.splash-readme
 
-        .tu-logo
-          a(href="https://vsp.berlin/en/")
-            img.img-logo(src="@/assets/images/vsp-logo-300dpi.png")
-          a(href="https://tu.berlin")
-            img.img-logo(src="@/assets/images/tu-logo.png")
+        hr
+        h2: b Sponsors
+        .agencies
+          a.agency(v-for="agency in agencies" :key="agency.name"
+            :href="agency.url"
+            :title="agency.name"
+          )
+            img(:src="agency.logo")
 
-      .right
-
+        hr
+        h2: b Site built with
+        .logo-area
+          .simwrapper-logo
+            a(href="https://simwrapper.github.io/docs/docs/simwrapper-intro")
+              img(src="@/assets/simwrapper-logo/SW_logo_yellow.png")
+          .tu-area
+            a.img-logo(href="https://tu.berlin")
+              img(src="@/assets/images/tu-logo.png")
+            a.img-logo(href="https://vsp.berlin/en/")
+              img(src="@/assets/images/vsp-logo-300dpi.png")
 
 </template>
 
@@ -34,7 +44,7 @@ const i18n = {
   messages: {
     en: {
       'more-info': 'Documentation:',
-      tagLine: 'the simulation browser and data visualizer from TU&nbsp;Berlin.',
+      tagLine: 'the simulation dashboard and data visualizer for ActivitySim',
     },
     de: {
       'more-info': 'Für weitere Informationen:',
@@ -51,12 +61,74 @@ import FileSystemProjects from '@/components/FileSystemProjects.vue'
 
 import InfoBottom from '@/assets/info-bottom.md'
 
+import MTC from '@/assets/images/sponsor-logos/mtc.png'
+import SANDAG from '@/assets/images/sponsor-logos/sandag.jpg'
+import ARC from '@/assets/images/sponsor-logos/arc.png'
+import METCOUNCIL from '@/assets/images/sponsor-logos/metcouncil.png'
+import PSRC from '@/assets/images/sponsor-logos/psrc.png'
+import SEMCOG from '@/assets/images/sponsor-logos/SEMCOG.jpg'
+import OREGON from '@/assets/images/sponsor-logos/oregondot.png'
+import SFCTA from '@/assets/images/sponsor-logos/sfcta.png'
+import MWCOG from '@/assets/images/sponsor-logos/mwcog.png'
+import OHIO from '@/assets/images/sponsor-logos/ohiodot.png'
+
 @Component({
   i18n,
   components: { Colophon, FileSystemProjects, InfoBottom },
 })
 class MyComponent extends Vue {
-  private state = globalStore.state
+  private agencies: any[] = [
+    {
+      name: 'Metropolitan Transportation Commission',
+      url: 'https://mtc.ca.gov/',
+      logo: MTC,
+    },
+    {
+      name: 'San Diego Association of Governments',
+      url: 'http://www.sandag.org/',
+      logo: SANDAG,
+    },
+    {
+      name: 'Atlanta Regional Commission',
+      url: 'https://atlantaregional.org/',
+      logo: ARC,
+    },
+    {
+      name: 'Metropolitan Council',
+      url: 'https://metrocouncil.org/',
+      logo: METCOUNCIL,
+    },
+    {
+      name: 'Puget Sound Regional Council',
+      url: 'https://www.psrc.org/',
+      logo: PSRC,
+    },
+    {
+      name: 'Southeast Michigan Council of Governments',
+      url: 'http://semcog.org/',
+      logo: SEMCOG,
+    },
+    {
+      name: 'Metropolitan Washington Council of Governments',
+      url: 'https://www.mwcog.org/',
+      logo: MWCOG,
+    },
+    {
+      name: 'San Francisco County Transportation Authority',
+      url: 'https://www.sfcta.org/',
+      logo: SFCTA,
+    },
+    {
+      name: 'Oregon Department of Transportation',
+      url: 'https://www.oregon.gov/ODOT',
+      logo: OREGON,
+    },
+    {
+      name: 'Ohio Department of Transportation',
+      url: 'https://www.transportation.ohio.gov/',
+      logo: OHIO,
+    },
+  ]
 
   private mounted() {
     const crumbs = [
@@ -96,8 +168,8 @@ export default MyComponent
 }
 
 .gap {
-  margin-top: 3rem;
-  margin-bottom: 2rem;
+  text-align: center;
+  margin: 3rem auto 2rem auto;
 }
 
 .content {
@@ -118,13 +190,6 @@ a {
   margin-bottom: 3rem;
   flex: 1;
   color: white;
-
-  // color: var(--text);
-}
-
-.simwrapper-logo {
-  width: 400px;
-  margin: 0 auto 1rem auto;
 }
 
 .main {
@@ -135,7 +200,8 @@ a {
     margin-top: 2rem;
     font-weight: bold;
     font-size: 3rem;
-    color: var(--text);
+    color: white;
+    text-align: center;
   }
 
   h2 {
@@ -207,15 +273,32 @@ a {
   padding: 0 1rem;
 }
 
-.tu-logo {
-  text-align: right;
-  margin-top: 0rem;
+.logo-area {
+  display: flex;
+  flex-direction: row;
+}
+
+.simwrapper-logo {
+  width: 300px;
+  margin-top: auto;
+  margin-bottom: 0.5rem;
+  margin-right: auto;
+}
+
+.tu-area {
+  display: flex;
+  flex-direction: row;
+  margin-left: auto;
+  margin-right: 2rem;
 }
 
 .img-logo {
-  margin-left: 4rem;
-  width: 7rem;
-  margin-bottom: 4rem;
+  margin-top: auto;
+  padding-left: 2rem;
+
+  img {
+    width: 85px;
+  }
 }
 
 .right {
@@ -227,6 +310,22 @@ hr {
   background-color: #53ade1; // 8d4eeb
   margin: 4rem 0 -0.5rem 0;
 }
+
+.agencies {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+  background-color: white;
+  padding: 0.25rem 0.25rem;
+  align-items: center;
+  border-radius: 1rem;
+}
+
+.agency {
+  padding: 1rem 0.5rem;
+  margin: 0.25rem 0.25rem;
+  text-align: center;
+}
+
 @media only screen and (max-width: 640px) {
   .content {
     padding: 2rem 1rem 8rem 1rem;
