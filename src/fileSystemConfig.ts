@@ -24,8 +24,8 @@ const fileSystems: FileSystemConfig[] = [
     name: 'Sample Runs',
     slug: 'sample-runs',
     description: 'Pre-built dashboards for exploration',
-    thumbnail: 'images/thumb-localfiles.jpg',
-    baseURL: 'https://svn.vsp.tu-berlin.de/repos/public-svn/shared/billy/simwrapper/sample-data',
+    baseURL:
+      'https://svn.vsp.tu-berlin.de/repos/public-svn/shared/sample-data/activitysim-examples',
   },
 ]
 
